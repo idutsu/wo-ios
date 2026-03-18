@@ -1,0 +1,35 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "wo",
+    "version": "0.1.0",
+    "identifier": "com.idutsu.wo",
+    "build": {
+        "beforeDevCommand": "npm run dev",
+        "beforeBuildCommand": "npm run build",
+        "devUrl": "http://localhost:1420",
+        "frontendDist": "../src/dist"
+    },
+    "app": {
+        "withGlobalTauri": true,
+        "windows": [
+            {
+                "title": "を研究所",
+                "maximized": true,
+                "resizable": false,
+                "backgroundColor": [0, 0, 0, 255]
+            }
+        ],
+        "security": {
+            "csp": null
+        }
+    },
+    "bundle": {
+        "active": true,
+        "iOS": {
+            "developmentTeam":"UB25V36TZU"
+        },
+        "targets": ["nsis"],
+        "icon": ["../src/assets/icons/favicon-32x32.png", "../src/assets/icons/favicon.ico"],
+        "resources": ["../pairs.sqlite3"]
+    }
+}
