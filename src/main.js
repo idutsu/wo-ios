@@ -41,13 +41,18 @@ class App {
         return this.#mode;
     }
 
-    tapButton(btn) {
+    async tapButton(btn) {
         const type = btn.className;
         const { table, noun, verb, word } = btn.dataset || {};
-        BUTTON_EXECUTE[type]?.({ btn, table, word, noun, verb });
+
+        try {
+            await BUTTON_EXECUTE[type]?.({ btn, table, word, noun, verb });
+        } catch (error) {
+            console.error("ボタン処理中にエラーが発生しました:", error);
+        }
     }
 
-    changeMode(mode) {
+    async changeMode(mode) {
         this.#mode = mode;
 
         const buttons = modeBox.querySelectorAll("button");
@@ -63,143 +68,125 @@ class App {
             btn.classList.add("active");
         }
 
-        MODE_EXECUTE[mode](mode);
+        try {
+            await MODE_EXECUTE[mode]?.(mode);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            enableAllButtons();
+        }
     }
 }
 
 async function getExampleSentences() {
     mainList.innerHTML = "<p>読み込み中・・・</p>";
 
-    try {
-        const query = `
-            SELECT noun, verb FROM (
-                SELECT noun, verb FROM wo_sudachi_normal
-                UNION ALL
-                SELECT noun, verb FROM wo_sudachi_sahen
-            )
-            ORDER BY RANDOM()
-            LIMIT 300
-        `;
+    const query = `
+        SELECT noun, verb FROM (
+            SELECT noun, verb FROM wo_sudachi_normal
+            UNION ALL
+            SELECT noun, verb FROM wo_sudachi_sahen
+        )
+        ORDER BY RANDOM()
+        LIMIT 300
+    `;
 
-        const rows = await db.select(query);
-        const allNouns = await db.select("SELECT word FROM noun");
-        const allVerbs = await db.select("SELECT word FROM verb");
+    const rows = await db.select(query);
+    const allNouns = await db.select("SELECT word FROM noun");
+    const allVerbs = await db.select("SELECT word FROM verb");
 
-        const nounSet = new Set(allNouns.map((n) => n.word || n[0]));
-        const verbSet = new Set(allVerbs.map((v) => v.word || v[0]));
+    const nounSet = new Set(allNouns.map((n) => n.word || n[0]));
+    const verbSet = new Set(allVerbs.map((v) => v.word || v[0]));
 
-        const fragment = document.createDocumentFragment();
+    const fragment = document.createDocumentFragment();
 
-        for (const row of rows) {
-            const noun = row.noun || row[0];
-            const verb = row.verb || row[1];
+    for (const row of rows) {
+        const noun = row.noun || row[0];
+        const verb = row.verb || row[1];
 
-            if (!noun || !verb) continue;
+        if (!noun || !verb) continue;
 
-            const isNounExist = nounSet.has(noun);
-            const isVerbExist = verbSet.has(verb);
+        const isNounExist = nounSet.has(noun);
+        const isVerbExist = verbSet.has(verb);
 
-            const nounBtn = isNounExist
-                ? `<button class="${BUTTON.DELETE_WORD}" data-table="noun" data-word="${noun}">${noun}</button>`
-                : `<button class="${BUTTON.SAVE_WORD}" data-table="noun" data-word="${noun}">${noun}</button>`;
-            const verbBtn = isVerbExist
-                ? `<button class="${BUTTON.DELETE_WORD}" data-table="verb" data-word="${verb}">${verb}</button>`
-                : `<button class="${BUTTON.SAVE_WORD}" data-table="verb" data-word="${verb}">${verb}</button>`;
+        const nounBtn = isNounExist
+            ? `<button class="${BUTTON.DELETE_WORD}" data-table="noun" data-word="${noun}">${noun}</button>`
+            : `<button class="${BUTTON.SAVE_WORD}" data-table="noun" data-word="${noun}">${noun}</button>`;
+        const verbBtn = isVerbExist
+            ? `<button class="${BUTTON.DELETE_WORD}" data-table="verb" data-word="${verb}">${verb}</button>`
+            : `<button class="${BUTTON.SAVE_WORD}" data-table="verb" data-word="${verb}">${verb}</button>`;
 
-            const li = document.createElement("li");
-            li.innerHTML = `${nounBtn}<span class="particle">を</span>${verbBtn}`;
-            fragment.appendChild(li);
-        }
-
-        mainList.innerHTML = "";
-        mainList.appendChild(fragment);
-    } catch (error) {
-        console.error(error);
-    } finally {
-        enableAllButtons();
+        const li = document.createElement("li");
+        li.innerHTML = `${nounBtn}<span class="particle">を</span>${verbBtn}`;
+        fragment.appendChild(li);
     }
+
+    mainList.innerHTML = "";
+    mainList.appendChild(fragment);
 }
 
 async function getFavoriteSentences() {
     mainList.innerHTML = "";
 
-    try {
-        const sentList = await db.select("SELECT noun, verb FROM sent");
-        const fragment = document.createDocumentFragment();
+    const sentList = await db.select("SELECT noun, verb FROM sent");
+    const fragment = document.createDocumentFragment();
 
-        for (let i = 0; i < sentList.length; i++) {
-            const noun = sentList[i].noun || sentList[i][0];
-            const verb = sentList[i].verb || sentList[i][1];
-            const li = document.createElement("li");
-            li.innerHTML = `<button class="${BUTTON.DELETE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
-            fragment.prepend(li);
-        }
-        mainList.appendChild(fragment);
-    } catch (error) {
-        console.error(error);
-    } finally {
-        enableAllButtons();
+    for (let i = 0; i < sentList.length; i++) {
+        const noun = sentList[i].noun || sentList[i][0];
+        const verb = sentList[i].verb || sentList[i][1];
+        const li = document.createElement("li");
+        li.innerHTML = `<button class="${BUTTON.DELETE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
+        fragment.prepend(li);
     }
+    mainList.appendChild(fragment);
 }
 
 async function getFavoriteWords(mode) {
-    try {
-        const wordList = await db.select(`SELECT word FROM ${mode}`);
-        const fragment = document.createDocumentFragment();
+    const wordList = await db.select(`SELECT word FROM ${mode}`);
+    const fragment = document.createDocumentFragment();
 
-        for (let i = 0; i < wordList.length; i++) {
-            const word = wordList[i].word || wordList[i][0];
-            const li = document.createElement("li");
-            li.innerHTML = `<button class="${BUTTON.DELETE_WORD}" data-table="${mode}" data-word="${word}">${word}</button>`;
-            fragment.prepend(li);
-        }
-
-        mainList.appendChild(fragment);
-    } catch (error) {
-        console.error(error);
-    } finally {
-        enableAllButtons();
+    for (let i = 0; i < wordList.length; i++) {
+        const word = wordList[i].word || wordList[i][0];
+        const li = document.createElement("li");
+        li.innerHTML = `<button class="${BUTTON.DELETE_WORD}" data-table="${mode}" data-word="${word}">${word}</button>`;
+        fragment.prepend(li);
     }
+
+    mainList.appendChild(fragment);
 }
 
 async function generateSentences(mode) {
     const getLimit = 300;
 
-    try {
-        const nounList = await db.select(`SELECT word FROM noun ORDER BY RANDOM() LIMIT ${getLimit}`);
-        const verbList = await db.select(`SELECT word FROM verb ORDER BY RANDOM() LIMIT ${getLimit}`);
-        const allSentences = await db.select("SELECT noun, verb FROM sent");
+    const nounList = await db.select(`SELECT word FROM noun ORDER BY RANDOM() LIMIT ${getLimit}`);
+    const verbList = await db.select(`SELECT word FROM verb ORDER BY RANDOM() LIMIT ${getLimit}`);
+    const allSentences = await db.select("SELECT noun, verb FROM sent");
 
-        const sentSet = new Set(
-            allSentences.map((s) => {
-                const n = s.noun || s[0];
-                const v = s.verb || s[1];
-                return `${n}_${v}`;
-            }),
-        );
+    const sentSet = new Set(
+        allSentences.map((s) => {
+            const n = s.noun || s[0];
+            const v = s.verb || s[1];
+            return `${n}_${v}`;
+        }),
+    );
 
-        const loopCount = Math.min(nounList.length, verbList.length, getLimit);
-        const fragment = document.createDocumentFragment();
+    const loopCount = Math.min(nounList.length, verbList.length, getLimit);
+    const fragment = document.createDocumentFragment();
 
-        for (let i = 0; i < loopCount; i++) {
-            const noun = nounList[i].word || nounList[i][0];
-            const verb = verbList[i].word || verbList[i][0];
+    for (let i = 0; i < loopCount; i++) {
+        const noun = nounList[i].word || nounList[i][0];
+        const verb = verbList[i].word || verbList[i][0];
 
-            const isSentExist = sentSet.has(`${noun}_${verb}`);
-            const sentBtnClass = isSentExist ? BUTTON.DELETE_SENTENCE : BUTTON.SAVE_SENTENCE;
+        const isSentExist = sentSet.has(`${noun}_${verb}`);
+        const sentBtnClass = isSentExist ? BUTTON.DELETE_SENTENCE : BUTTON.SAVE_SENTENCE;
 
-            const li = document.createElement("li");
-            li.innerHTML = `<button class="${sentBtnClass}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
+        const li = document.createElement("li");
+        li.innerHTML = `<button class="${sentBtnClass}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
 
-            fragment.appendChild(li);
-        }
-
-        mainList.appendChild(fragment);
-    } catch (error) {
-        console.error(error);
-    } finally {
-        enableAllButtons();
+        fragment.appendChild(li);
     }
+
+    mainList.appendChild(fragment);
 }
 
 async function generateSentencesWithWord(e) {
@@ -241,39 +228,23 @@ async function generateSentencesWithWord(e) {
 }
 
 async function saveWord({ btn, table, word }) {
-    try {
-        await db.execute(`INSERT OR IGNORE INTO ${table} (word) VALUES ($1)`, [word]);
-        btn.className = BUTTON.DELETE_WORD;
-    } catch (error) {
-        console.error(error);
-    }
+    await db.execute(`INSERT OR IGNORE INTO ${table} (word) VALUES ($1)`, [word]);
+    btn.className = BUTTON.DELETE_WORD;
 }
 
 async function deleteWord({ btn, table, word }) {
-    try {
-        await db.execute(`DELETE FROM ${table} WHERE word = $1`, [word]);
-        btn.className = BUTTON.SAVE_WORD;
-    } catch (error) {
-        console.error(error);
-    }
+    await db.execute(`DELETE FROM ${table} WHERE word = $1`, [word]);
+    btn.className = BUTTON.SAVE_WORD;
 }
 
 async function saveSentence({ btn, noun, verb }) {
-    try {
-        await db.execute(`INSERT OR IGNORE INTO sent (noun, verb) VALUES ($1, $2)`, [noun, verb]);
-        btn.className = BUTTON.DELETE_SENTENCE;
-    } catch (error) {
-        console.error(error);
-    }
+    await db.execute(`INSERT OR IGNORE INTO sent (noun, verb) VALUES ($1, $2)`, [noun, verb]);
+    btn.className = BUTTON.DELETE_SENTENCE;
 }
 
 async function deleteSentence({ btn, noun, verb }) {
-    try {
-        await db.execute(`DELETE FROM sent WHERE noun = $1 AND verb = $2`, [noun, verb]);
-        btn.className = BUTTON.SAVE_SENTENCE;
-    } catch (error) {
-        console.error(error);
-    }
+    await db.execute(`DELETE FROM sent WHERE noun = $1 AND verb = $2`, [noun, verb]);
+    btn.className = BUTTON.SAVE_SENTENCE;
 }
 
 const register = async (e) => {
