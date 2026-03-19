@@ -55,12 +55,12 @@ class App {
     async changeMode(mode) {
         this.#mode = mode;
 
-        const buttons = modeBox.querySelectorAll("button");
         mainList.className = mode + "-list";
         mainList.innerHTML = "";
 
         const btn = document.getElementById(mode + "Btn");
         if (btn) {
+            const buttons = modeBox.querySelectorAll("button");
             buttons.forEach((button) => {
                 button.disabled = true;
                 button.classList.remove("active");
