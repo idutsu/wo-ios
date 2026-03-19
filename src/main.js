@@ -1,11 +1,12 @@
 import Database from "@tauri-apps/plugin-sql";
 
 const MODE = {
-    EXAMPLE  : "example",
-    NOUN     : "noun",
-    VERB     : "verb",
-    GENERATE : "gen",
-    FAVORITE : "fav",
+    EXAMPLE       : "example",
+    NOUN          : "noun",
+    VERB          : "verb",
+    GENERATE      : "gen",
+    GENERATE_WITH : "genWith",
+    FAVORITE      : "fav",
 }
 
 const EXECUTE = {
@@ -13,14 +14,25 @@ const EXECUTE = {
     [MODE.NOUN]     : getFavoriteWords,
     [MODE.VERB]     : getFavoriteWords,
     [MODE.GENERATE] : generateSentences,
-    [MODE.FAVORITE] : getFavoriteSentences
+    [MODE.GENERATE_WITH] : generateSentencesWithWord,
+    [MODE.FAVORITE] : getFavoriteSentences,
 }
 
 class State {
     #mode;
+    #btn;
 
     constructor() {
         this.#mode = null;
+        this.#btn = null;
+    }
+
+    get btn() {
+        return this.#btn.deref();
+    }
+
+    set btn(btn) {
+        this.#btn = new WeakRef(btn);
     }
 
     get mode() {
@@ -34,12 +46,16 @@ class State {
 
     #update(mode) {
         const buttons = document.getElementById("btnBox").querySelectorAll("button");
-        buttons.forEach((button) => {
-            button.disabled = true;
-            button.classList.remove("active");
-        });
         mainList.className = mode + "-list";
-        document.getElementById(mode + "Btn").classList.add("active");
+        mainList.innerHTML = "";
+        const btn = document.getElementById(mode + "Btn");
+        if (btn) {
+            buttons.forEach((button) => {
+                button.disabled = true;
+                button.classList.remove("active");
+            });
+            btn.classList.add("active");
+        }
         EXECUTE[mode](mode);
     }
 }
@@ -122,8 +138,6 @@ async function getFavoriteSentences() {
 //お気に入り単語（名詞 OR 動詞）を取得する
 async function getFavoriteWords(mode) {
 
-    mainList.innerHTML = "";
-
     try {
         const wordList = await db.select(`SELECT word FROM ${mode}`);
 
@@ -146,8 +160,6 @@ async function getFavoriteWords(mode) {
 
 // お気に入り単語（名詞と動詞）から文を生成する
 async function generateSentences(mode) {
-
-    mainList.innerHTML = "";
 
     const getLimit = 300;
 
@@ -191,14 +203,13 @@ async function generateSentences(mode) {
 
 
 //単語（名詞 OR 動詞）を含む文を生成する
-async function getSentencesWithWord(e) {
-    if (state.mode !== MODE.NOUN && state.mode !== MODE.VERB) return;
-
-    const withWord = e.target.dataset.word;
+async function generateSentencesWithWord() {
+    const btn = state.btn;
+    const withWord = btn.dataset.word;
     let table;
     let createSentenceHTML;
 
-    if (state.mode === MODE.NOUN) {
+    if (btn.dataset.table === MODE.NOUN) {
         table = "verb";
         createSentenceHTML = (word) =>
             `<button class="good-sent-btn" data-table="sent" data-noun="${withWord}" data-verb="${word}">${withWord}を${word}</button>`;
@@ -356,7 +367,11 @@ const startPress = (e) => {
     pressTimer = setTimeout(() => {
         if (pressFlag) {
             pressFlag = false;
-            getSentencesWithWord(e);
+            if (state.mode === MODE.NOUN || state.mode === MODE.VERB) {
+                if (e.target.tagName !== "BUTTON") return;
+                state.btn = e.target;
+                state.mode = MODE.GENERATE_WITH;
+            }
         }
     }, 500);
 };
@@ -400,8 +415,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     try {
         const DB = import.meta.env.VITE_DB;
         db = await Database.load(DB);
-        const version = await db.select("PRAGMA user_version;");
-        document.getElementById("verNum").textContent = "ver " + version[0].user_version + ".0";
     } catch (error) {
         console.error("DB接続失敗:", error);
         resultArea.innerHTML = `<p">データベースの接続に失敗しました：${error}</p>`;
