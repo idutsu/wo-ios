@@ -130,7 +130,7 @@ h1 {
     fill: var(--text-color);
 }
 
-#btnBox {
+#modeBox {
     display: flex;
     align-items: center;
     height: 40px;
@@ -189,8 +189,8 @@ button.main-btn.active {
     color: var(--bg-color);
 }
 
-.example-list .good-word-btn,
-.gen-list .good-sent-btn{
+.example-list .save-word-btn,
+.gen-list .save-sent-btn{
     background-color: var(--bg-color);
     color: var(--text-color);
 }
@@ -202,9 +202,9 @@ button.main-btn.active {
     color: var(--text-color);
 }
 
-.noun-list .good-word-btn,
-.verb-list .good-word-btn,
-.fav-list .good-sent-btn {
+.noun-list .save-word-btn,
+.verb-list .save-word-btn,
+.fav-list .save-sent-btn {
     background-color: var(--bg-color);
     color: var(--text-color);
     opacity: 0.3;
