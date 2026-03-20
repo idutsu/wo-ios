@@ -310,11 +310,11 @@ function enableAllButtons() {
 
 const startPress = (e) => {
     clearTimeout(pressTimer);
+    if (e.target.tagName !== "BUTTON") return;
+    if (!e.target.dataset.context) return;
     pressTimer = setTimeout(() => {
         if (!pressFlag) return;
         pressFlag = false;
-        if (e.target.tagName !== "BUTTON") return;
-        if (!e.target.dataset.context) return;
         app.tapContext(e.target);
     }, 500);
 };
