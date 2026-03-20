@@ -30,6 +30,16 @@ const BUTTON_EXECUTE = {
     [BUTTON.SAVE_WORD]       : saveWord,
 };
 
+const CONTEXT = {
+    GEN_WITH_NOUN : "gen-with-noun",
+    GEN_WITH_VERB : "gen-with-verb",
+}
+
+const CONTEXT_EXECUTE = {
+    [CONTEXT.GEN_WITH_NOUN] : generateSentencesWithNoun,
+    [CONTEXT.GEN_WITH_VERB] : generateSentencesWithVerb,
+}
+
 class App {
     #mode;
 
@@ -42,11 +52,20 @@ class App {
     }
 
     async tapButton(btn) {
-        const type = btn.className;
-        const { table, noun, verb, word } = btn.dataset || {};
+        const { type, table, noun, verb, word } = btn.dataset || {};
 
         try {
             await BUTTON_EXECUTE[type]?.({ btn, table, word, noun, verb });
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    async tapContext(btn) {
+        const { context, table, noun, verb, word } = btn.dataset || {};
+
+        try {
+            await CONTEXT_EXECUTE[context]?.({btn, word});
         } catch (error) {
             console.error(error);
         }
@@ -110,11 +129,11 @@ async function getExampleSentences() {
         const isVerbExist = verbSet.has(verb);
 
         const nounBtn = isNounExist
-            ? `<button class="${BUTTON.DELETE_WORD}" data-table="noun" data-word="${noun}">${noun}</button>`
-            : `<button class="${BUTTON.SAVE_WORD}" data-table="noun" data-word="${noun}">${noun}</button>`;
+            ? `<button class="${BUTTON.DELETE_WORD}" data-type="${BUTTON.DELETE_WORD}" data-table="noun" data-word="${noun}">${noun}</button>`
+            : `<button class="${BUTTON.SAVE_WORD}" data-type="${BUTTON.SAVE_WORD}" data-table="noun" data-word="${noun}">${noun}</button>`;
         const verbBtn = isVerbExist
-            ? `<button class="${BUTTON.DELETE_WORD}" data-table="verb" data-word="${verb}">${verb}</button>`
-            : `<button class="${BUTTON.SAVE_WORD}" data-table="verb" data-word="${verb}">${verb}</button>`;
+            ? `<button class="${BUTTON.DELETE_WORD}" data-type="${BUTTON.DELETE_WORD}" data-table="verb" data-word="${verb}">${verb}</button>`
+            : `<button class="${BUTTON.SAVE_WORD}" data-type="${BUTTON.SAVE_WORD}" data-table="verb" data-word="${verb}">${verb}</button>`;
 
         const li = document.createElement("li");
         li.innerHTML = `${nounBtn}<span class="particle">を</span>${verbBtn}`;
@@ -135,7 +154,7 @@ async function getFavoriteSentences() {
         const noun = sentList[i].noun || sentList[i][0];
         const verb = sentList[i].verb || sentList[i][1];
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${BUTTON.DELETE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
+        li.innerHTML = `<button class="${BUTTON.DELETE_SENTENCE}" data-type="${BUTTON.DELETE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
         fragment.prepend(li);
     }
     mainList.appendChild(fragment);
@@ -148,7 +167,7 @@ async function getFavoriteWords(mode) {
     for (let i = 0; i < wordList.length; i++) {
         const word = wordList[i].word || wordList[i][0];
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${BUTTON.DELETE_WORD}" data-table="${mode}" data-word="${word}">${word}</button>`;
+        li.innerHTML = `<button class="${BUTTON.DELETE_WORD}" data-type="${BUTTON.DELETE_WORD}" data-context="${mode === MODE.NOUN ? "gen-with-noun" : "gen-with-verb"}" data-table="${mode}" data-word="${word}">${word}</button>`;
         fragment.prepend(li);
     }
 
@@ -181,7 +200,7 @@ async function generateSentences(mode) {
         const sentBtnClass = isSentExist ? BUTTON.DELETE_SENTENCE : BUTTON.SAVE_SENTENCE;
 
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${sentBtnClass}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
+        li.innerHTML = `<button class="${sentBtnClass}" data-type="${sentBtnClass}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
 
         fragment.appendChild(li);
     }
@@ -189,62 +208,53 @@ async function generateSentences(mode) {
     mainList.appendChild(fragment);
 }
 
-async function generateSentencesWithWord(e) {
-    const btn = e.target;
-    const withTable = btn.dataset.table;
-    const word = btn.dataset.word;
-    let targetTable;
-    let createSentenceHTML;
-
-    if (withTable === "noun") {
-        targetTable = "verb";
-        createSentenceHTML = (w) =>
-            `<button class="${BUTTON.SAVE_SENTENCE}" data-table="sent" data-noun="${word}" data-verb="${w}">${word}を${w}</button>`;
-    } else {
-        targetTable = "noun";
-        createSentenceHTML = (w) =>
-            `<button class="${BUTTON.SAVE_SENTENCE}" data-table="sent" data-noun="${w}" data-verb="${word}">${w}を${word}</button>`;
-    }
-
+async function generateSentencesWithNoun({btn, word}) {
     mainList.className = "gen-list";
     mainList.innerHTML = "";
-
-    try {
-        const wordList = await db.select(`SELECT word FROM ${targetTable}`);
-        const fragment = document.createDocumentFragment();
-
-        for (let i = 0; i < wordList.length; i++) {
-            const word = wordList[i].word || wordList[i][0];
-            const li = document.createElement("li");
-            li.innerHTML = createSentenceHTML(word);
-            fragment.prepend(li);
-        }
-        mainList.prepend(fragment);
-    } catch (error) {
-        console.error(error);
-    } finally {
-        enableAllButtons();
+    const wordList = await db.select(`SELECT word FROM verb`);
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < wordList.length; i++) {
+        const w = wordList[i].word || wordList[i][0];
+        const li = document.createElement("li");
+        li.innerHTML = `<button class="${BUTTON.SAVE_SENTENCE}" data-type="${BUTTON.SAVE_SENTENCE}" data-table="sent" data-noun="${word}" data-verb="${w}">${word}を${w}</button>`;
+        fragment.prepend(li);
     }
+    mainList.prepend(fragment);
+}
+
+async function generateSentencesWithVerb({btn, word}) {
+    mainList.className = "gen-list";
+    mainList.innerHTML = "";
+    const wordList = await db.select(`SELECT word FROM noun`);
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < wordList.length; i++) {
+        const w = wordList[i].word || wordList[i][0];
+        const li = document.createElement("li");
+        li.innerHTML = `<button class="${BUTTON.SAVE_SENTENCE}" data-type="${BUTTON.SAVE_SENTENCE}" data-table="sent" data-noun="${w}" data-verb="${word}">${w}を${word}</button>`;
+        fragment.prepend(li);
+    }
+    mainList.prepend(fragment);
+
 }
 
 async function saveWord({ btn, table, word }) {
     await db.execute(`INSERT OR IGNORE INTO ${table} (word) VALUES ($1)`, [word]);
-    btn.className = BUTTON.DELETE_WORD;
+    btn.className = btn.dataset.type = BUTTON.DELETE_WORD;
 }
 
 async function deleteWord({ btn, table, word }) {
     await db.execute(`DELETE FROM ${table} WHERE word = $1`, [word]);
-    btn.className = BUTTON.SAVE_WORD;
+    btn.className = btn.dataset.type = BUTTON.SAVE_WORD;
 }
 
 async function saveSentence({ btn, noun, verb }) {
     await db.execute(`INSERT OR IGNORE INTO sent (noun, verb) VALUES ($1, $2)`, [noun, verb]);
-    btn.className = BUTTON.DELETE_SENTENCE;
+    btn.className = btn.dataset.type = BUTTON.DELETE_SENTENCE;
 }
 
 async function deleteSentence({ btn, noun, verb }) {
     await db.execute(`DELETE FROM sent WHERE noun = $1 AND verb = $2`, [noun, verb]);
-    btn.className = BUTTON.SAVE_SENTENCE;
+    btn.className = btn.dataset.type = BUTTON.SAVE_SENTENCE;
 }
 
 const register = async (e) => {
@@ -303,10 +313,9 @@ const startPress = (e) => {
     pressTimer = setTimeout(() => {
         if (!pressFlag) return;
         pressFlag = false;
-        const isTargetMode = app.mode === MODE.NOUN || app.mode === MODE.VERB;
-        if (!isTargetMode) return;
         if (e.target.tagName !== "BUTTON") return;
-        generateSentencesWithWord(e);
+        if (!e.target.dataset.context) return;
+        app.tapContext(e.target);
     }, 500);
 };
 
