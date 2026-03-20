@@ -48,7 +48,7 @@ class App {
         try {
             await BUTTON_EXECUTE[type]?.({ btn, table, word, noun, verb });
         } catch (error) {
-            console.error("ボタン処理中にエラーが発生しました:", error);
+            console.error(error);
         }
     }
 
