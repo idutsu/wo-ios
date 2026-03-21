@@ -100,7 +100,7 @@ class App {
             btn.classList.add("active");
         }
 
-        MODE_EXECUTE[mode]?.(mode);
+        await MODE_EXECUTE[mode]?.(mode);
     }
 }
 
