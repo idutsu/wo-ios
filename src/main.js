@@ -1,5 +1,18 @@
 import Database from "@tauri-apps/plugin-sql";
 
+const executeDecorator = (fn) => {
+    return async function (...args) {
+        disableAllButtons();
+        try {
+            return await fn?.(...args);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            enableAllButtons();
+        }
+    }
+}
+
 const MODE = {
     EXAMPLE  : "example",
     NOUN     : "noun",
@@ -9,11 +22,11 @@ const MODE = {
 };
 
 const MODE_EXECUTE = {
-    [MODE.EXAMPLE]  : getExampleSentences,
-    [MODE.NOUN]     : getFavoriteWords,
-    [MODE.VERB]     : getFavoriteWords,
-    [MODE.GENERATE] : generateSentences,
-    [MODE.FAVORITE] : getFavoriteSentences,
+    [MODE.EXAMPLE]  : executeDecorator(getExampleSentences),
+    [MODE.NOUN]     : executeDecorator(getFavoriteWords),
+    [MODE.VERB]     : executeDecorator(getFavoriteWords),
+    [MODE.GENERATE] : executeDecorator(generateSentences),
+    [MODE.FAVORITE] : executeDecorator(getFavoriteSentences),
 };
 
 const BUTTON = {
@@ -24,10 +37,10 @@ const BUTTON = {
 };
 
 const BUTTON_EXECUTE = {
-    [BUTTON.DELETE_SENTENCE] : deleteSentence,
-    [BUTTON.SAVE_SENTENCE]   : saveSentence,
-    [BUTTON.DELETE_WORD]     : deleteWord,
-    [BUTTON.SAVE_WORD]       : saveWord,
+    [BUTTON.DELETE_SENTENCE] : executeDecorator(deleteSentence),
+    [BUTTON.SAVE_SENTENCE]   : executeDecorator(saveSentence),
+    [BUTTON.DELETE_WORD]     : executeDecorator(deleteWord),
+    [BUTTON.SAVE_WORD]       : executeDecorator(saveWord),
 };
 
 const CONTEXT = {
@@ -36,9 +49,10 @@ const CONTEXT = {
 }
 
 const CONTEXT_EXECUTE = {
-    [CONTEXT.GEN_WITH_NOUN] : generateSentencesWithNoun,
-    [CONTEXT.GEN_WITH_VERB] : generateSentencesWithVerb,
+    [CONTEXT.GEN_WITH_NOUN] : executeDecorator(generateSentencesWithNoun),
+    [CONTEXT.GEN_WITH_VERB] : executeDecorator(generateSentencesWithVerb),
 }
+
 
 class App {
     #mode;
@@ -53,12 +67,12 @@ class App {
 
     async tapButton(btn) {
         const { type, table, noun, verb, word } = btn.dataset || {};
-        await this.#execute(BUTTON_EXECUTE[type], {btn, table, word, noun, verb});
+        await BUTTON_EXECUTE[type]?.({btn, table, word, noun, verb});
     }
 
     async tapContext(btn) {
         const { context, word } = btn.dataset || {};
-        await this.#execute(CONTEXT_EXECUTE[context],{btn, word})
+        await CONTEXT_EXECUTE[context]?.({btn, word});
     }
 
     async changeMode(mode) {
@@ -74,37 +88,106 @@ class App {
             btn.classList.add("active");
         }
 
-        await this.#execute(MODE_EXECUTE[mode], mode);
-    }
-
-    async #execute(fn, args) {
-        disableAllButtons();
-        try {
-            await fn?.(args);
-        } catch (error) {
-            console.error(error);
-        } finally {
-            enableAllButtons();
-        }
+        MODE_EXECUTE[mode]?.(mode);
     }
 }
+
+const dbFacade = {
+    db: null,
+
+    async init(dbPath) {
+        this.db = await Database.load(dbPath);
+    },
+
+    async getRandomExampleSentences(limit = 300) {
+        const query = `
+            SELECT noun, verb FROM (
+                SELECT noun, verb FROM wo_sudachi_normal
+                UNION ALL
+                SELECT noun, verb FROM wo_sudachi_sahen
+            )
+            ORDER BY RANDOM()
+            LIMIT ${limit}
+        `;
+        return await this.db.select(query);
+    },
+
+    async getAllWords(table) {
+        return await this.db.select(`SELECT word FROM ${table}`);
+    },
+
+    async getRandomWords(table, limit = 300) {
+        return await this.db.select(`SELECT word FROM ${table} ORDER BY RANDOM() LIMIT ${limit}`);
+    },
+
+    async getAllSentences() {
+        return await this.db.select("SELECT noun, verb FROM sent");
+    },
+
+    async saveWord(table, word) {
+        await this.db.execute(`INSERT OR IGNORE INTO ${table} (word) VALUES ($1)`, [word]);
+    },
+
+    async deleteWord(table, word) {
+        await this.db.execute(`DELETE FROM ${table} WHERE word = $1`, [word]);
+    },
+
+    async saveSentence(noun, verb) {
+        await this.db.execute(`INSERT OR IGNORE INTO sent (noun, verb) VALUES ($1, $2)`, [noun, verb]);
+    },
+
+    async deleteSentence(noun, verb) {
+        await this.db.execute(`DELETE FROM sent WHERE noun = $1 AND verb = $2`, [noun, verb]);
+    }
+};
+
+function dbProxy(targetDB) {
+    const cache = {};
+
+    return new Proxy(targetDB, {
+        get: function(target, prop) {
+            if (prop === 'getAllWords' || prop === 'getAllSentences') {
+                return async function(table = 'sent') {
+                    const cacheKey =  table;
+                    if (cache[cacheKey]) {
+                        console.log(`【キャッシュ】${table}は記憶から返します！(超高速)`);
+                        return cache[cacheKey];
+                    }
+                    const result = await target[prop](table);
+                    cache[table] = result;
+                    return result;
+                };
+            }
+            if (prop === 'saveWord' || prop === 'deleteWord') {
+                return async function(...args) {
+                    const tableName = args[0];
+                    console.log(`【秘書】${tableName} が更新されました。${tableName}のメモだけ捨てます！`);
+                    delete cache[tableName];
+                    return await target[prop](...args);
+                };
+            }
+
+            if (prop === 'saveSentence' || prop === 'deleteSentence') {
+                return async function(...args) {
+                    console.log(`【秘書】文章が更新されました。sentのメモだけ捨てます！`);
+                    delete cache['sent'];
+                    return await target[prop](...args);
+                };
+            }
+
+            return target[prop];
+        }
+    });
+}
+
+const dbFacadeProxy = dbProxy(dbFacade);
 
 async function getExampleSentences() {
     mainList.innerHTML = "<p>読み込み中・・・</p>";
 
-    const query = `
-        SELECT noun, verb FROM (
-            SELECT noun, verb FROM wo_sudachi_normal
-            UNION ALL
-            SELECT noun, verb FROM wo_sudachi_sahen
-        )
-        ORDER BY RANDOM()
-        LIMIT 300
-    `;
-
-    const rows = await db.select(query);
-    const allNouns = await db.select("SELECT word FROM noun");
-    const allVerbs = await db.select("SELECT word FROM verb");
+    const rows = await dbFacadeProxy.getRandomExampleSentences(300);
+    const allNouns = await dbFacadeProxy.getAllWords("noun");
+    const allVerbs = await dbFacadeProxy.getAllWords("verb");
 
     const nounSet = new Set(allNouns.map((n) => n.word || n[0]));
     const verbSet = new Set(allVerbs.map((v) => v.word || v[0]));
@@ -135,11 +218,9 @@ async function getExampleSentences() {
     mainList.innerHTML = "";
     mainList.appendChild(fragment);
 }
-
 async function getFavoriteSentences() {
     mainList.innerHTML = "";
-
-    const sentList = await db.select("SELECT noun, verb FROM sent");
+    const sentList = await dbFacadeProxy.getAllSentences();
     const fragment = document.createDocumentFragment();
 
     for (let i = 0; i < sentList.length; i++) {
@@ -153,7 +234,7 @@ async function getFavoriteSentences() {
 }
 
 async function getFavoriteWords(mode) {
-    const wordList = await db.select(`SELECT word FROM ${mode}`);
+    const wordList = await dbFacadeProxy.getAllWords(mode);
     const fragment = document.createDocumentFragment();
 
     for (let i = 0; i < wordList.length; i++) {
@@ -168,10 +249,9 @@ async function getFavoriteWords(mode) {
 
 async function generateSentences(mode) {
     const getLimit = 300;
-
-    const nounList = await db.select(`SELECT word FROM noun ORDER BY RANDOM() LIMIT ${getLimit}`);
-    const verbList = await db.select(`SELECT word FROM verb ORDER BY RANDOM() LIMIT ${getLimit}`);
-    const allSentences = await db.select("SELECT noun, verb FROM sent");
+    const nounList = await dbFacadeProxy.getRandomWords("noun", getLimit);
+    const verbList = await dbFacadeProxy.getRandomWords("verb", getLimit);
+    const allSentences = await dbFacadeProxy.getAllSentences();
 
     const sentSet = new Set(
         allSentences.map((s) => {
@@ -203,7 +283,7 @@ async function generateSentences(mode) {
 async function generateSentencesWithNoun({btn, word}) {
     mainList.className = "gen-list";
     mainList.innerHTML = "";
-    const wordList = await db.select(`SELECT word FROM verb`);
+    const wordList = await dbFacadeProxy.getAllWords("verb");
     const fragment = document.createDocumentFragment();
     for (let i = 0; i < wordList.length; i++) {
         const w = wordList[i].word || wordList[i][0];
@@ -217,7 +297,7 @@ async function generateSentencesWithNoun({btn, word}) {
 async function generateSentencesWithVerb({btn, word}) {
     mainList.className = "gen-list";
     mainList.innerHTML = "";
-    const wordList = await db.select(`SELECT word FROM noun`);
+    const wordList = await dbFacadeProxy.getAllWords("noun");
     const fragment = document.createDocumentFragment();
     for (let i = 0; i < wordList.length; i++) {
         const w = wordList[i].word || wordList[i][0];
@@ -226,26 +306,25 @@ async function generateSentencesWithVerb({btn, word}) {
         fragment.prepend(li);
     }
     mainList.prepend(fragment);
-
 }
 
 async function saveWord({ btn, table, word }) {
-    await db.execute(`INSERT OR IGNORE INTO ${table} (word) VALUES ($1)`, [word]);
+    await dbFacadeProxy.saveWord(table, word);
     btn.className = btn.dataset.type = BUTTON.DELETE_WORD;
 }
 
 async function deleteWord({ btn, table, word }) {
-    await db.execute(`DELETE FROM ${table} WHERE word = $1`, [word]);
+    await dbFacadeProxy.deleteWord(table, word);
     btn.className = btn.dataset.type = BUTTON.SAVE_WORD;
 }
 
 async function saveSentence({ btn, noun, verb }) {
-    await db.execute(`INSERT OR IGNORE INTO sent (noun, verb) VALUES ($1, $2)`, [noun, verb]);
+    await dbFacadeProxy.saveSentence(noun, verb);
     btn.className = btn.dataset.type = BUTTON.DELETE_SENTENCE;
 }
 
 async function deleteSentence({ btn, noun, verb }) {
-    await db.execute(`DELETE FROM sent WHERE noun = $1 AND verb = $2`, [noun, verb]);
+    await dbFacadeProxy.deleteSentence(noun, verb);
     btn.className = btn.dataset.type = BUTTON.SAVE_SENTENCE;
 }
 
@@ -257,15 +336,15 @@ const register = async (e) => {
 
     try {
         if (nounText && !verbText) {
-            await db.execute(`INSERT OR IGNORE INTO noun (word) VALUES ($1)`, [nounText]);
+            await dbFacadeProxy.saveWord("noun", nounText);
             nounInput.value = "";
             nounBtn.click();
         } else if (!nounText && verbText) {
-            await db.execute(`INSERT OR IGNORE INTO verb (word) VALUES ($1)`, [verbText]);
+            await dbFacadeProxy.saveWord("verb", verbText);
             verbInput.value = "";
             verbBtn.click();
         } else {
-            await db.execute(`INSERT OR IGNORE INTO sent (noun, verb) VALUES ($1, $2)`, [nounText, verbText]);
+            await dbFacadeProxy.saveSentence(nounText, verbText);
             nounInput.value = "";
             verbInput.value = "";
             favBtn.click();
@@ -316,7 +395,6 @@ const cancelPress = () => {
     clearTimeout(pressTimer);
 };
 
-let db;
 let app;
 let modeBox = null;
 let mainList = null;
@@ -347,10 +425,11 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     try {
         const DB = import.meta.env.VITE_DB;
-        db = await Database.load(DB);
+        await dbFacadeProxy.init(DB);
     } catch (error) {
         console.error(error);
         resultArea.innerHTML = `<p>データベースの接続に失敗しました：${error}</p>`;
+        return;
     }
 
     exampleBtn.addEventListener("click", () => app.changeMode(MODE.EXAMPLE));
