@@ -53,42 +53,34 @@ class App {
 
     async tapButton(btn) {
         const { type, table, noun, verb, word } = btn.dataset || {};
-
-        try {
-            await BUTTON_EXECUTE[type]?.({ btn, table, word, noun, verb });
-        } catch (error) {
-            console.error(error);
-        }
+        await this.#execute(BUTTON_EXECUTE[type], {btn, table, word, noun, verb});
     }
 
     async tapContext(btn) {
-        const { context, table, noun, verb, word } = btn.dataset || {};
-
-        try {
-            await CONTEXT_EXECUTE[context]?.({btn, word});
-        } catch (error) {
-            console.error(error);
-        }
+        const { context, word } = btn.dataset || {};
+        await this.#execute(CONTEXT_EXECUTE[context],{btn, word})
     }
 
     async changeMode(mode) {
         this.#mode = mode;
 
-        mainList.className = mode + "-list";
+        mainList.className = `${mode}-list`;
         mainList.innerHTML = "";
 
-        const btn = document.getElementById(mode + "Btn");
+        const btn = document.getElementById(`${mode}Btn`);
         if (btn) {
             const buttons = modeBox.querySelectorAll("button");
-            buttons.forEach((button) => {
-                button.disabled = true;
-                button.classList.remove("active");
-            });
+            buttons.forEach((button) => button.classList.remove("active"));
             btn.classList.add("active");
         }
 
+        await this.#execute(MODE_EXECUTE[mode], mode);
+    }
+
+    async #execute(fn, args) {
+        disableAllButtons();
         try {
-            await MODE_EXECUTE[mode]?.(mode);
+            await fn?.(args);
         } catch (error) {
             console.error(error);
         } finally {
@@ -301,31 +293,27 @@ const searchInputWords = (e) => {
     }
 };
 
+function disableAllButtons() {
+    document.body.inert = true;
+}
+
 function enableAllButtons() {
-    const buttons = modeBox.querySelectorAll("button");
-    buttons.forEach((button) => {
-        button.disabled = false;
-    });
+    document.body.inert = false;
 }
 
 const startPress = (e) => {
+    isLongPressed = false;
     clearTimeout(pressTimer);
     if (e.target.tagName !== "BUTTON") return;
     if (!e.target.dataset.context) return;
     pressTimer = setTimeout(() => {
-        if (!pressFlag) return;
-        pressFlag = false;
+        isLongPressed = true;
         app.tapContext(e.target);
     }, 500);
 };
 
 const cancelPress = () => {
-    pressFlag = true;
     clearTimeout(pressTimer);
-};
-
-const cancelPressFlag = (e) => {
-    if (pressFlag) pressFlag = false;
 };
 
 let db;
@@ -342,7 +330,7 @@ let verbInput = null;
 let registerBtn = null;
 let resultArea = null;
 let pressTimer;
-let pressFlag = true;
+let isLongPressed = false;
 
 window.addEventListener("DOMContentLoaded", async () => {
     modeBox = document.getElementById("modeBox");
@@ -379,13 +367,17 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     mainList.addEventListener("click", (e) => {
         if (e.target.tagName !== "BUTTON") return;
+        if (isLongPressed) {
+            isLongPressed = false;
+            return;
+        }
         app.tapButton(e.target);
     });
 
     mainList.addEventListener("touchstart", startPress);
     mainList.addEventListener("touchend", cancelPress);
     mainList.addEventListener("touchcancel", cancelPress);
-    mainList.addEventListener("touchmove", cancelPressFlag);
+    mainList.addEventListener("touchmove", cancelPress);
 
     app = new App();
     exampleBtn.click();
