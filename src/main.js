@@ -53,6 +53,18 @@ const CONTEXT_EXECUTE = {
     [CONTEXT.GEN_WITH_VERB] : executeDecorator(generateSentencesWithVerb),
 }
 
+const eventBus = {
+    listeners: {},
+    subscribe(key, fun) {
+        if (!this.listeners[key]) this.listeners[key] = [];
+        this.listeners[key].push(fn);
+    },
+    publish(key, data) {
+        if(this.listeners[key]) {
+            this.listeners[key].forEach(fn => fn(data));
+        }
+    }
+}
 
 class App {
     #mode;
@@ -150,7 +162,7 @@ function dbProxy(targetDB) {
                 return async function(table = 'sent') {
                     const cacheKey =  table;
                     if (cache[cacheKey]) {
-                        console.log(`【キャッシュ】${table}は記憶から返します！(超高速)`);
+                        console.log(`${table}はキャッシュがあります`);
                         return cache[cacheKey];
                     }
                     const result = await target[prop](table);
@@ -160,18 +172,22 @@ function dbProxy(targetDB) {
             }
             if (prop === 'saveWord' || prop === 'deleteWord') {
                 return async function(...args) {
-                    const tableName = args[0];
-                    console.log(`【秘書】${tableName} が更新されました。${tableName}のメモだけ捨てます！`);
-                    delete cache[tableName];
-                    return await target[prop](...args);
+                    const table = args[0];
+                    console.log(`${table} が更新されました。${table}のキャッシュを削除します。`);
+                    delete cache[table];
+                    const result = await target[prop](...args);
+                    eventBus.publish("word", {prop, table});
+                    return result;
                 };
             }
 
             if (prop === 'saveSentence' || prop === 'deleteSentence') {
                 return async function(...args) {
-                    console.log(`【秘書】文章が更新されました。sentのメモだけ捨てます！`);
+                    console.log(`お気に入り文が更新されました。sentのキャッシュを削除します。`);
                     delete cache['sent'];
-                    return await target[prop](...args);
+                    const result = await target[prop](...args);
+                    eventBus.publish("sent", {prop, table});
+                    return result;
                 };
             }
 
