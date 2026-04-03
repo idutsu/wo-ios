@@ -25,7 +25,9 @@ html {
 body {
     font-size: 1rem;
     height: 100%;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+        "Yu Gothic", sans-serif;
     color: var(--text-color);
     background-color: var(--bg-color);
     overflow: hidden;
@@ -51,8 +53,8 @@ footer {
     width: 100%;
     height: 95px;
     padding: 0 1rem;
-    display:flex;
-    flex-flow:column;
+    display: flex;
+    flex-flow: column;
     justify-content: flex-end;
 }
 
@@ -176,11 +178,10 @@ button.main-btn.active {
     padding: 5px 0;
 }
 
-#mainList li.pager {
-    position: relative;
-    font-size:2rem;
+#mainList li.page-btn {
+    font-size: 2rem;
+    margin-top: 20px;
 }
-
 
 #mainList li button,
 #mainList li span {
@@ -189,29 +190,32 @@ button.main-btn.active {
     padding: 2px;
 }
 
-#mainList li button.pager-next,
-#mainList li button.pager-prev{
-    width:49%;
-    text-align:center;
-    padding:10px 0;
+#mainList li button.page-next,
+#mainList li button.page-prev {
+    width: 50px;
+    height: 50px;
+    text-align: center !important;
+    line-waheight: 50px;
+    margin-right: 15px;
 }
 
 .example-list .delete-word-btn,
 .gen-list .delete-sent-btn,
-.pager-next, .pager-prev {
+.page-next,
+.page-prev {
     background-color: var(--text-color);
     color: var(--bg-color);
 }
 
 .example-list .save-word-btn,
-.gen-list .save-sent-btn{
+.gen-list .save-sent-btn {
     background-color: var(--bg-color);
     color: var(--text-color);
 }
 
 .noun-list .delete-word-btn,
 .verb-list .delete-word-btn,
-.fav-list .delete-sent-btn{
+.fav-list .delete-sent-btn {
     background-color: var(--bg-color);
     color: var(--text-color);
 }
@@ -222,16 +226,4 @@ button.main-btn.active {
     background-color: var(--bg-color);
     color: var(--text-color);
     opacity: 0.3;
-}
-
-.pager {
-    margin-top: 5px;
-}
-
-.pager-prev{
-    float: left;
-}
-
-.pager-next {
-    float:right;
 }

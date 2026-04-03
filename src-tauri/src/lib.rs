@@ -1,12 +1,20 @@
 use tauri::Manager;
 use tauri::path::BaseDirectory;
 use std::fs;
-use rusqlite::Connection;
+use rusqlite::{Connection, Result as SqliteResult};
 
+fn sync_dictionary(conn: &mut Connection, attach_sql: &str, src_version: i32) -> SqliteResult<()> {
+    conn.execute(attach_sql, [])?;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}!", name)
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM wo_sudachi_normal", [])?;
+    tx.execute("DELETE FROM wo_sudachi_sahen", [])?;
+    tx.execute("INSERT INTO wo_sudachi_normal SELECT * FROM bundled_db.wo_sudachi_normal", [])?;
+    tx.execute("INSERT INTO wo_sudachi_sahen SELECT * FROM bundled_db.wo_sudachi_sahen", [])?;
+    tx.execute(&format!("PRAGMA user_version = {}", src_version), [])?;
+    tx.commit()?;
+
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -46,42 +54,41 @@ pub fn run() {
                 };
 
                 // ユーザー側のDBに接続
-                if let Ok(conn_dest) = Connection::open(&db_dest_path) {
-                    let dest_version: i32 = conn_dest.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap_or(0);
+                if let Ok(mut conn_dest) = Connection::open(&db_dest_path) {
+                    let dest_version: i32 = conn_dest
+                        .query_row("PRAGMA user_version", [], |row| row.get(0))
+                        .unwrap_or(0);
 
                     // 同梱DBのバージョンのほうが新しい場合のみ、同期を実行
                     if src_version > dest_version {
-                        println!("新しい辞書データが見つかりました。(v{} -> v{}) 同期を開始します...", dest_version, src_version);
-
-                        let attach_sql = format!(
-                            "ATTACH DATABASE '{}' AS bundled_db",
-                            db_src_path.to_str().unwrap()
+                        println!(
+                            "新しい辞書データが見つかりました。(v{} -> v{}) 同期を開始します...",
+                            dest_version, src_version
                         );
 
-                        if conn_dest.execute(&attach_sql, []).is_ok() {
-                            // トランザクション開始
-                            let _ = conn_dest.execute("BEGIN TRANSACTION", []);
+                        match db_src_path.to_str() {
+                            Some(src_path_str) => {
+                                let escaped_path = src_path_str.replace('\'', "''");
+                                let attach_sql = format!(
+                                    "ATTACH DATABASE '{}' AS bundled_db",
+                                    escaped_path
+                                );
 
-                            // 古いデータを削除
-                            let _ = conn_dest.execute("DELETE FROM wo_sudachi_normal", []);
-                            let _ = conn_dest.execute("DELETE FROM wo_sudachi_sahen", []);
-
-                            // 最新のDBからデータを一括流し込み
-                            let _ = conn_dest.execute("INSERT INTO wo_sudachi_normal SELECT * FROM bundled_db.wo_sudachi_normal", []);
-                            let _ = conn_dest.execute("INSERT INTO wo_sudachi_sahen SELECT * FROM bundled_db.wo_sudachi_sahen", []);
-
-                            // ユーザー側のDBのバージョンを最新に更新
-                            let _ = conn_dest.execute(&format!("PRAGMA user_version = {}", src_version), []);
-
-                            // 確定
-                            let _ = conn_dest.execute("COMMIT", []);
-
-                            println!("開発者用テーブルを最新状態に同期しました！(バージョン: {})", src_version);
-                        } else {
-                            eprintln!("データベースのATTACHに失敗しました。");
+                                match sync_dictionary(&mut conn_dest, &attach_sql, src_version) {
+                                    Ok(_) => println!(
+                                        "辞書データを最新状態に同期しました！(バージョン: {})",
+                                        src_version
+                                    ),
+                                    Err(e) => eprintln!("同期に失敗しました: {}", e),
+                                }
+                            }
+                            None => eprintln!("データベースパスの変換に失敗しました。"),
                         }
                     } else {
-                        println!("辞書データは最新です。(バージョン: {}) 同期をスキップしました。", dest_version);
+                        println!(
+                            "辞書データは最新です。(バージョン: {}) 同期をスキップしました。",
+                            dest_version
+                        );
                     }
                 }
             }
@@ -90,7 +97,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
