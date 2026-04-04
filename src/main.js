@@ -25,7 +25,7 @@ const MODE_EXECUTE = {
     [MODE.EXAMPLE]: executeDecorator(getExampleSentences),
     [MODE.NOUN]: executeDecorator(getFavoriteWords),
     [MODE.VERB]: executeDecorator(getFavoriteWords),
-    [MODE.GENERATE]: executeDecorator(generateSentences),
+    [MODE.GENERATE]: executeDecorator(generateSentencesWithRandom),
     [MODE.FAVORITE]: executeDecorator(getFavoriteSentences),
 };
 
@@ -67,6 +67,16 @@ class App {
         return this.#mode;
     }
 
+    set mode(mode) {
+        this.#mode = mode;
+        const activeBtn = document.getElementById(`${mode}Btn`);
+        if (activeBtn) {
+            const buttons = modeBox.querySelectorAll("button");
+            buttons.forEach((button) => button.classList.remove("active"));
+            activeBtn.classList.add("active");
+        }
+    }
+
     async buttonExecute(btn) {
         const payload = { btn };
         for (const key in btn.dataset) payload[key] = btn.dataset[key];
@@ -77,20 +87,16 @@ class App {
         const payload = {};
         for (const key in btn.dataset) payload[key] = btn.dataset[key];
         await OPTION_EXECUTE[payload.option]?.(payload);
-        resultArea.scrollTo(0, 0);
     }
 
-    async modeExecute(mode) {
-        this.#mode = mode;
+    async modeExecute(btn) {
+        const payload = {};
+        for (const key in btn.dataset) payload[key] = btn.dataset[key];
+        const mode = payload.mode;
+        this.mode = mode;
         mainList.className = `${mode}-list`;
         mainList.innerHTML = "";
-        const btn = document.getElementById(`${mode}Btn`);
-        if (btn) {
-            const buttons = modeBox.querySelectorAll("button");
-            buttons.forEach((button) => button.classList.remove("active"));
-            btn.classList.add("active");
-        }
-        await MODE_EXECUTE[mode]?.({ mode, page: 1 });
+        await MODE_EXECUTE[mode]?.(payload);
         resultArea.scrollTo(0, 0);
     }
 
@@ -211,7 +217,7 @@ const dbFacadeProxy = dbProxy(dbFacade);
 /**
  * @returns {void}
  */
-async function getExampleSentences() {
+async function getExampleSentences({ mode, page }) {
     mainList.innerHTML = "<p>読み込み中・・・</p>";
     const rows = await dbFacadeProxy.getRandomExampleSentences(SENT_LIMIT);
     const allNouns = await dbFacadeProxy.getAllWords("noun");
@@ -238,10 +244,7 @@ async function getExampleSentences() {
     mainList.replaceChildren(fragment);
 }
 
-/**
- * @returns {void}
- */
-async function getFavoriteSentences() {
+async function getFavoriteSentences({ mode, page }) {
     const sentList = await dbFacadeProxy.getAllSentences();
     const fragment = document.createDocumentFragment();
     for (let i = 0; i < sentList.length; i++) {
@@ -254,28 +257,21 @@ async function getFavoriteSentences() {
     mainList.replaceChildren(fragment);
 }
 
-/**
- * @param {"noun" | "verb"} params.mode
- * @param {number} [params.page=1]
- */
-async function getFavoriteWords({ mode, page = 1 }) {
+async function getFavoriteWords({ mode, page }) {
     const words = await dbFacadeProxy.getWordsByPage(mode, page);
     const fragment = document.createDocumentFragment();
     for (let i = 0; i < words.length; i++) {
         const word = words[i].word || words[i][0];
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${BUTTON.DELETE_WORD}" data-type="${BUTTON.DELETE_WORD}" data-option="${OPTION.GEN_WITH_WORD}" data-table="${mode}" data-word="${word}">${word}</button>`;
+        li.innerHTML = `<button class="${BUTTON.DELETE_WORD}" data-type="${BUTTON.DELETE_WORD}" data-option="${OPTION.GEN_WITH_WORD}" data-table="${mode}" data-word="${word}" data-page="${page}">${word}</button>`;
         fragment.append(li);
     }
-    const pager = createPager(page, words.length, { exec: mode, table: mode });
+    const pager = createPager(page, words.length, { mode: mode, table: mode });
     if (pager) fragment.append(pager);
     mainList.replaceChildren(fragment);
 }
 
-/**
- * @returns {void}
- */
-async function generateSentences() {
+async function generateSentencesWithRandom({ mode, page }) {
     const nounList = await dbFacadeProxy.getRandomWords("noun", SENT_LIMIT);
     const verbList = await dbFacadeProxy.getRandomWords("verb", SENT_LIMIT);
     const allSentences = await dbFacadeProxy.getAllSentences();
@@ -300,71 +296,46 @@ async function generateSentences() {
     mainList.replaceChildren(fragment);
 }
 
-/**
- * @param {string} params.word
- * @param {"noun" | "verb"} params.table
- * @param {string} [params.option]
- * @param {number} [params.page=1]
- */
-async function generateSentencesWithWord({ word, table, option, page = 1 }) {
+async function generateSentencesWithWord({ mode, page, word, table }) {
+    app.mode = MODE.GENERATE;
     mainList.className = `${MODE.GENERATE}-list`;
-    const fetchType = { noun: "verb", verb: "noun" }[table];
-    const words = await dbFacadeProxy.getWordsByPage(fetchType, page);
-    const wordLength = words.length;
+    const fetchTable = { noun: "verb", verb: "noun" }[table];
+    const words = await dbFacadeProxy.getWordsByPage(fetchTable, page);
+    const wordsLength = words.length;
     const fragment = document.createDocumentFragment();
-    for (let i = 0; i < wordLength; i++) {
+    for (let i = 0; i < wordsLength; i++) {
         const w = words[i].word || words[i][0];
         const [noun, verb] = { noun: [word, w], verb: [w, word] }[table];
         const li = document.createElement("li");
         li.innerHTML = `<button class="${BUTTON.SAVE_SENTENCE}" data-type="${BUTTON.SAVE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
         fragment.append(li);
     }
-    const pager = createPager(page, wordLength, { exec: option, table, word });
+    const pager = createPager(page, wordsLength, { mode: MODE.GENERATE, table, word });
     if (pager) fragment.append(pager);
     mainList.replaceChildren(fragment);
+    resultArea.scrollTo(0, 0);
 }
 
-/**
- * @returns {void}
- */
 async function saveWord({ btn, table, word }) {
     await dbFacadeProxy.saveWord(table, word);
     btn.className = btn.dataset.type = BUTTON.DELETE_WORD;
 }
 
-/**
- * @param {HTMLButtonElement} params.btn
- * @param {"noun" | "verb"} params.table
- * @param {string} params.word
- */
 async function deleteWord({ btn, table, word }) {
     await dbFacadeProxy.deleteWord(table, word);
     btn.className = btn.dataset.type = BUTTON.SAVE_WORD;
 }
 
-/**
- * @param {HTMLButtonElement} params.btn
- * @param {string} params.noun
- * @param {string} params.verb
- */
 async function saveSentence({ btn, noun, verb }) {
     await dbFacadeProxy.saveSentence(noun, verb);
     btn.className = btn.dataset.type = BUTTON.DELETE_SENTENCE;
 }
 
-/**
- * @param {HTMLButtonElement} params.btn
- * @param {string} params.noun
- * @param {string} params.verb
- */
 async function deleteSentence({ btn, noun, verb }) {
     await dbFacadeProxy.deleteSentence(noun, verb);
     btn.className = btn.dataset.type = BUTTON.SAVE_SENTENCE;
 }
 
-/**
- * @returns {void}
- */
 async function registerWordOrSentence() {
     const nounText = nounInput.value.trim();
     const verbText = verbInput.value.trim();
@@ -389,24 +360,14 @@ async function registerWordOrSentence() {
     }
 }
 
-/**
- * @param {"noun" | "verb"} params.table
- * @param {Number} params.page
- * @param {"noun" | "verb" | "gen_with_word"} params.exec
- * @param {string} params.word
- */
-async function pager({ table, page, exec, word }) {
-    if (exec === OPTION.GEN_WITH_WORD) {
-        await generateSentencesWithWord({ option: exec, table, word, page: Number(page) });
-    } else if (exec === MODE.NOUN || exec === MODE.VERB) {
-        await getFavoriteWords({ mode: exec, page: Number(page) });
+async function pager({ btn, mode, page, word, table }) {
+    if (mode === MODE.NOUN || mode === MODE.VERB) {
+        app.modeExecute(btn);
+    } else if (mode === MODE.GENERATE) {
+        generateSentencesWithWord({ word, table, page });
     }
-    resultArea.scrollTo(0, 0);
 }
 
-/**
- * @returns {void}
- */
 function disableAllButtons() {
     const buttons = document.querySelectorAll("button");
     buttons.forEach((btn) => {
@@ -414,9 +375,6 @@ function disableAllButtons() {
     });
 }
 
-/**
- * @returns {void}
- */
 function enableAllButtons() {
     const buttons = document.querySelectorAll("button");
     buttons.forEach((btn) => {
@@ -424,13 +382,6 @@ function enableAllButtons() {
     });
 }
 
-/**
- * @param {"noun" | "verb"} table
- * @param {Number} page
- * @param {Number} listLength
- * @param {Object} [datasetOptions={}]
- * @returns {HTMLElement | null}
- */
 function createPager(page, listLength, datasetOptions = {}) {
     if (!page) return null;
     const currentPage = Number(page, 10);
@@ -498,11 +449,11 @@ window.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
-    exampleBtn.addEventListener("click", () => app.modeExecute(MODE.EXAMPLE));
-    genBtn.addEventListener("click", () => app.modeExecute(MODE.GENERATE));
-    favBtn.addEventListener("click", () => app.modeExecute(MODE.FAVORITE));
-    nounBtn.addEventListener("click", () => app.modeExecute(MODE.NOUN));
-    verbBtn.addEventListener("click", () => app.modeExecute(MODE.VERB));
+    modeBox.addEventListener("click", (e) => {
+        if (e.target.tagName !== "BUTTON") return;
+        app.modeExecute(e.target);
+    });
+
     registerBtn.addEventListener("click", (e) => app.buttonExecute(e.target));
 
     let pressTimer;
@@ -516,10 +467,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     mainList.addEventListener("touchstart", (e) => {
         isLongPressed = false;
         clearTimeout(pressTimer);
-        if (e.target.tagName !== "BUTTON" || !e.target.dataset.option) return;
+        const el = e.target;
+        if (el.tagName !== "BUTTON" || !el.dataset.option) return;
         pressTimer = setTimeout(() => {
             isLongPressed = true;
-            app.optionExecute(e.target);
+            app.optionExecute(el);
         }, 500);
     });
 
