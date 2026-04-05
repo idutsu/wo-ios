@@ -116,7 +116,7 @@ h1 {
     overflow: hidden;
 }
 
-#titleBox {
+header > div {
     width: 100%;
     display: flex;
     align-items: center;
@@ -147,6 +147,11 @@ button.main-btn {
     border: 1px solid var(--text-color);
 }
 
+button.main-btn.active {
+    background-color: var(--text-color);
+    color: var(--bg-color);
+}
+
 #inputBox {
     display: flex;
     gap: 10px;
@@ -167,20 +172,10 @@ input[type="text"].main-input::placeholder {
     opacity: 0.5;
 }
 
-button.main-btn.active {
-    background-color: var(--text-color);
-    color: var(--bg-color);
-}
-
 #mainList li {
     position: relative;
     display: block;
     padding: 5px 0;
-}
-
-#mainList li.page-btn {
-    font-size: 2rem;
-    margin-top: 20px;
 }
 
 #mainList li button,
@@ -188,6 +183,11 @@ button.main-btn.active {
     display: inline-block;
     text-align: left;
     padding: 2px;
+}
+
+#mainList li.page-btn {
+    font-size: 2rem;
+    margin-top: 20px;
 }
 
 #mainList li button.page-next,

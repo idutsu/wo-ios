@@ -25,42 +25,51 @@ const MODE_EXECUTE = {
     [MODE.EXAMPLE]: executeDecorator(getExampleSentences),
     [MODE.NOUN]: executeDecorator(getFavoriteWords),
     [MODE.VERB]: executeDecorator(getFavoriteWords),
-    [MODE.GENERATE]: executeDecorator(generateSentencesWithRandom),
+    [MODE.GENERATE]: executeDecorator(generateSentences),
     [MODE.FAVORITE]: executeDecorator(getFavoriteSentences),
 };
 
-const BUTTON = {
+const DB = {
     DELETE_SENTENCE: "delete-sent-btn",
     SAVE_SENTENCE: "save-sent-btn",
     DELETE_WORD: "delete-word-btn",
     SAVE_WORD: "save-word-btn",
     REGISTER: "register-btn",
-    PAGE: "page-btn",
 };
 
-const BUTTON_EXECUTE = {
-    [BUTTON.DELETE_SENTENCE]: executeDecorator(deleteSentence),
-    [BUTTON.SAVE_SENTENCE]: executeDecorator(saveSentence),
-    [BUTTON.DELETE_WORD]: executeDecorator(deleteWord),
-    [BUTTON.SAVE_WORD]: executeDecorator(saveWord),
-    [BUTTON.REGISTER]: executeDecorator(registerWordOrSentence),
-    [BUTTON.PAGE]: executeDecorator(pager),
+const DB_EXECUTE = {
+    [DB.DELETE_SENTENCE]: executeDecorator(deleteSentence),
+    [DB.SAVE_SENTENCE]: executeDecorator(saveSentence),
+    [DB.DELETE_WORD]: executeDecorator(deleteWord),
+    [DB.SAVE_WORD]: executeDecorator(saveWord),
+    [DB.REGISTER]: executeDecorator(registerWordOrSentence),
 };
 
-const OPTION = {
-    GEN_WITH_WORD: "gen-with-word",
-};
+class EventManager {
+    constructor() {
+        this.listeners = {};
+    }
+    on(key, fn) {
+        if (!this.listeners[key]) this.listeners[key] = [];
+        this.listeners[key].push(fn);
+    }
+    fire(key, data) {
+        if (this.listeners[key]) {
+            this.listeners[key].forEach((fn) => fn(data));
+        }
+    }
+}
 
-const OPTION_EXECUTE = {
-    [OPTION.GEN_WITH_WORD]: executeDecorator(generateSentencesWithWord),
-};
-
-class App {
+class App extends EventManager {
     #mode;
-    listeners = {};
+    #page;
+    #btn;
 
     constructor() {
+        super();
         this.#mode = null;
+        this.#page = 1;
+        this.#btn = null;
     }
 
     get mode() {
@@ -68,47 +77,35 @@ class App {
     }
 
     set mode(mode) {
+        if (!Object.values(MODE).includes(mode)) return;
         this.#mode = mode;
-        const activeBtn = document.getElementById(`${mode}Btn`);
-        if (activeBtn) {
-            const buttons = modeBox.querySelectorAll("button");
-            buttons.forEach((button) => button.classList.remove("active"));
-            activeBtn.classList.add("active");
-        }
+        this.#page = 1;
+        this.fire("modeChange", { mode: mode, page: this.page, btn: this.btn });
     }
 
-    async buttonExecute(btn) {
-        const payload = { btn };
-        for (const key in btn.dataset) payload[key] = btn.dataset[key];
-        await BUTTON_EXECUTE[payload.type]?.(payload);
+    get page() {
+        return this.#page;
     }
 
-    async optionExecute(btn) {
+    set page(page) {
+        this.#page = Number(page);
+        this.fire("pageChange", { page: page, mode: this.mode, btn: this.btn });
+    }
+
+    get btn() {
+        return this.#btn;
+    }
+
+    set btn(btn) {
+        this.#btn = btn;
+        if (!btn) return;
+        this.fire("btnChange", { btn: btn, mode: this.mode, page: this.page });
+    }
+
+    getBtnData(btn) {
         const payload = {};
         for (const key in btn.dataset) payload[key] = btn.dataset[key];
-        await OPTION_EXECUTE[payload.option]?.(payload);
-    }
-
-    async modeExecute(btn) {
-        const payload = {};
-        for (const key in btn.dataset) payload[key] = btn.dataset[key];
-        const mode = payload.mode;
-        this.mode = mode;
-        mainList.className = `${mode}-list`;
-        mainList.innerHTML = "";
-        await MODE_EXECUTE[mode]?.(payload);
-        resultArea.scrollTo(0, 0);
-    }
-
-    addEventListener(key, fn) {
-        if (!this.listeners[key]) this.listeners[key] = [];
-        this.listeners[key].push(fn);
-    }
-
-    fireEventLisner(key, data) {
-        if (this.listeners[key]) {
-            this.listeners[key].forEach((fn) => fn(data));
-        }
+        return payload;
     }
 }
 
@@ -179,7 +176,6 @@ function dbProxy(targetDB) {
                 return async function (table = "sent") {
                     const cacheKey = table;
                     if (cache[cacheKey]) {
-                        console.log(`${table}はキャッシュを利用します。`);
                         return cache[cacheKey];
                     }
                     const result = await target[prop](table);
@@ -191,7 +187,6 @@ function dbProxy(targetDB) {
             if (prop === "saveWord" || prop === "deleteWord") {
                 return async function (...args) {
                     const table = args[0];
-                    console.log(`${table} が更新されました。${table}のキャッシュを削除します。`);
                     delete cache[table];
                     const result = await target[prop](...args);
                     return result;
@@ -200,7 +195,6 @@ function dbProxy(targetDB) {
 
             if (prop === "saveSentence" || prop === "deleteSentence") {
                 return async function (...args) {
-                    console.log(`お気に入り文が更新されました。sentのキャッシュを削除します。`);
                     delete cache["sent"];
                     const result = await target[prop](...args);
                     return result;
@@ -214,9 +208,6 @@ function dbProxy(targetDB) {
 
 const dbFacadeProxy = dbProxy(dbFacade);
 
-/**
- * @returns {void}
- */
 async function getExampleSentences({ mode, page }) {
     mainList.innerHTML = "<p>読み込み中・・・</p>";
     const rows = await dbFacadeProxy.getRandomExampleSentences(SENT_LIMIT);
@@ -232,7 +223,7 @@ async function getExampleSentences({ mode, page }) {
         const isNounExist = nounSet.has(noun);
         const isVerbExist = verbSet.has(verb);
         const createWordBtn = (word, table, isExist) => {
-            const action = isExist ? BUTTON.DELETE_WORD : BUTTON.SAVE_WORD;
+            const action = isExist ? DB.DELETE_WORD : DB.SAVE_WORD;
             return `<button class="${action}" data-type="${action}" data-table="${table}" data-word="${word}">${word}</button>`;
         };
         const nounBtn = createWordBtn(noun, "noun", isNounExist);
@@ -251,7 +242,7 @@ async function getFavoriteSentences({ mode, page }) {
         const noun = sentList[i].noun || sentList[i][0];
         const verb = sentList[i].verb || sentList[i][1];
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${BUTTON.DELETE_SENTENCE}" data-type="${BUTTON.DELETE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
+        li.innerHTML = `<button class="${DB.DELETE_SENTENCE}" data-type="${DB.DELETE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
         fragment.prepend(li);
     }
     mainList.replaceChildren(fragment);
@@ -263,15 +254,23 @@ async function getFavoriteWords({ mode, page }) {
     for (let i = 0; i < words.length; i++) {
         const word = words[i].word || words[i][0];
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${BUTTON.DELETE_WORD}" data-type="${BUTTON.DELETE_WORD}" data-option="${OPTION.GEN_WITH_WORD}" data-table="${mode}" data-word="${word}" data-page="${page}">${word}</button>`;
+        li.innerHTML = `<button class="${DB.DELETE_WORD}" data-type="${DB.DELETE_WORD}" data-table="${mode}" data-word="${word}">${word}</button>`;
         fragment.append(li);
     }
-    const pager = createPager(page, words.length, { mode: mode, table: mode });
+    const pager = createPager(page, words.length);
     if (pager) fragment.append(pager);
     mainList.replaceChildren(fragment);
 }
 
-async function generateSentencesWithRandom({ mode, page }) {
+async function generateSentences({ mode, page, btn }) {
+    if (btn?.dataset?.word && btn?.dataset?.table) {
+        await generateSentencesWithWord({ word: btn.dataset.word, table: btn.dataset.table, page });
+    } else {
+        await generateSentencesWithRandom();
+    }
+}
+
+async function generateSentencesWithRandom() {
     const nounList = await dbFacadeProxy.getRandomWords("noun", SENT_LIMIT);
     const verbList = await dbFacadeProxy.getRandomWords("verb", SENT_LIMIT);
     const allSentences = await dbFacadeProxy.getAllSentences();
@@ -288,7 +287,7 @@ async function generateSentencesWithRandom({ mode, page }) {
         const noun = nounList[i].word || nounList[i][0];
         const verb = verbList[i].word || verbList[i][0];
         const isSentExist = sentSet.has(`${noun}_${verb}`);
-        const detaType = isSentExist ? BUTTON.DELETE_SENTENCE : BUTTON.SAVE_SENTENCE;
+        const detaType = isSentExist ? DB.DELETE_SENTENCE : DB.SAVE_SENTENCE;
         const li = document.createElement("li");
         li.innerHTML = `<button class="${detaType}" data-type="${detaType}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
         fragment.appendChild(li);
@@ -297,8 +296,6 @@ async function generateSentencesWithRandom({ mode, page }) {
 }
 
 async function generateSentencesWithWord({ mode, page, word, table }) {
-    app.mode = MODE.GENERATE;
-    mainList.className = `${MODE.GENERATE}-list`;
     const fetchTable = { noun: "verb", verb: "noun" }[table];
     const words = await dbFacadeProxy.getWordsByPage(fetchTable, page);
     const wordsLength = words.length;
@@ -307,33 +304,32 @@ async function generateSentencesWithWord({ mode, page, word, table }) {
         const w = words[i].word || words[i][0];
         const [noun, verb] = { noun: [word, w], verb: [w, word] }[table];
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${BUTTON.SAVE_SENTENCE}" data-type="${BUTTON.SAVE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
+        li.innerHTML = `<button class="${DB.SAVE_SENTENCE}" data-type="${DB.SAVE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
         fragment.append(li);
     }
-    const pager = createPager(page, wordsLength, { mode: MODE.GENERATE, table, word });
+    const pager = createPager(page, wordsLength, { word, table });
     if (pager) fragment.append(pager);
     mainList.replaceChildren(fragment);
-    resultArea.scrollTo(0, 0);
 }
 
 async function saveWord({ btn, table, word }) {
     await dbFacadeProxy.saveWord(table, word);
-    btn.className = btn.dataset.type = BUTTON.DELETE_WORD;
+    btn.className = btn.dataset.type = DB.DELETE_WORD;
 }
 
 async function deleteWord({ btn, table, word }) {
     await dbFacadeProxy.deleteWord(table, word);
-    btn.className = btn.dataset.type = BUTTON.SAVE_WORD;
+    btn.className = btn.dataset.type = DB.SAVE_WORD;
 }
 
 async function saveSentence({ btn, noun, verb }) {
     await dbFacadeProxy.saveSentence(noun, verb);
-    btn.className = btn.dataset.type = BUTTON.DELETE_SENTENCE;
+    btn.className = btn.dataset.type = DB.DELETE_SENTENCE;
 }
 
 async function deleteSentence({ btn, noun, verb }) {
     await dbFacadeProxy.deleteSentence(noun, verb);
-    btn.className = btn.dataset.type = BUTTON.SAVE_SENTENCE;
+    btn.className = btn.dataset.type = DB.SAVE_SENTENCE;
 }
 
 async function registerWordOrSentence() {
@@ -344,27 +340,19 @@ async function registerWordOrSentence() {
         if (nounText && !verbText) {
             await dbFacadeProxy.saveWord("noun", nounText);
             nounInput.value = "";
-            await app.modeExecute(MODE.NOUN);
+            app.mode = MODE.NOUN;
         } else if (!nounText && verbText) {
             await dbFacadeProxy.saveWord("verb", verbText);
             verbInput.value = "";
-            await app.modeExecute(MODE.VERB);
+            app.mode = MODE.VERB;
         } else {
             await dbFacadeProxy.saveSentence(nounText, verbText);
             nounInput.value = "";
             verbInput.value = "";
-            await app.modeExecute(MODE.FAVORITE);
+            app.mode = MODE.FAVORITE;
         }
     } catch (error) {
         console.error(error);
-    }
-}
-
-async function pager({ btn, mode, page, word, table }) {
-    if (mode === MODE.NOUN || mode === MODE.VERB) {
-        app.modeExecute(btn);
-    } else if (mode === MODE.GENERATE) {
-        generateSentencesWithWord({ word, table, page });
     }
 }
 
@@ -382,28 +370,27 @@ function enableAllButtons() {
     });
 }
 
-function createPager(page, listLength, datasetOptions = {}) {
+function createPager(page, listLength, option = {}) {
     if (!page) return null;
-    const currentPage = Number(page, 10);
     const pagerLi = document.createElement("li");
-    pagerLi.className = BUTTON.PAGE;
+    pagerLi.className = "page-btn";
     const setDataset = (btn, targetPage) => {
-        btn.dataset.type = BUTTON.PAGE;
-        btn.dataset.page = targetPage;
-        for (const [key, value] of Object.entries(datasetOptions)) {
+        btn.dataset.type = "page";
+        btn.dataset.args = targetPage;
+        for (const [key, value] of Object.entries(option)) {
             if (value !== undefined) btn.dataset[key] = value;
         }
     };
-    if (currentPage > 1) {
+    if (page > 1) {
         const prevBtn = document.createElement("button");
-        setDataset(prevBtn, currentPage - 1);
+        setDataset(prevBtn, page - 1);
         prevBtn.className = "page-prev";
         prevBtn.textContent = "◀";
         pagerLi.appendChild(prevBtn);
     }
     if (listLength === WORD_LIMIT) {
         const nextBtn = document.createElement("button");
-        setDataset(nextBtn, currentPage + 1);
+        setDataset(nextBtn, page + 1);
         nextBtn.className = "page-next";
         nextBtn.textContent = "▶";
         pagerLi.appendChild(nextBtn);
@@ -449,29 +436,17 @@ window.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
-    modeBox.addEventListener("click", (e) => {
-        if (e.target.tagName !== "BUTTON") return;
-        app.modeExecute(e.target);
-    });
-
-    registerBtn.addEventListener("click", (e) => app.buttonExecute(e.target));
-
     let pressTimer;
     let isLongPressed = false;
-
-    mainList.addEventListener("click", (e) => {
-        if (e.target.tagName !== "BUTTON") return;
-        isLongPressed ? (isLongPressed = false) : app.buttonExecute(e.target);
-    });
 
     mainList.addEventListener("touchstart", (e) => {
         isLongPressed = false;
         clearTimeout(pressTimer);
-        const el = e.target;
-        if (el.tagName !== "BUTTON" || !el.dataset.option) return;
+        const btn = e.target;
+        if (btn.tagName !== "BUTTON") return;
         pressTimer = setTimeout(() => {
             isLongPressed = true;
-            app.optionExecute(el);
+            app.fire("longPress", { mode: app.mode, page: app.page, btn: btn });
         }, 500);
     });
 
@@ -481,5 +456,53 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     app = new App();
 
-    exampleBtn.click();
+    registerBtn.addEventListener("click", DB_EXECUTE[DB.REGISTER]);
+
+    modeBox.addEventListener("click", (e) => {
+        app.mode = e.target.dataset.args;
+    });
+
+    mainList.addEventListener("click", (e) => {
+        const btn = e.target;
+        if (btn.tagName !== "BUTTON") return;
+        app.btn = btn;
+        if (btn.dataset.type === "page") {
+            app.page = Number(btn.dataset.args);
+        }
+        if (isLongPressed) isLongPressed = false;
+    });
+
+    app.on("modeChange", async ({ mode, page, btn }) => {
+        const modeBtn = document.getElementById(`${mode}Btn`);
+        if (modeBtn) {
+            const buttons = modeBox.querySelectorAll("button");
+            buttons.forEach((button) => button.classList.remove("active"));
+            modeBtn.classList.add("active");
+        }
+        mainList.className = `${mode}-list`;
+        mainList.innerHTML = "";
+        await MODE_EXECUTE[mode]({ mode, page, btn });
+        resultArea.scrollTo(0, 0);
+    });
+
+    app.on("pageChange", async ({ mode, page, btn }) => {
+        await MODE_EXECUTE[mode]({ mode, page, btn });
+        resultArea.scrollTo(0, 0);
+    });
+
+    app.on("btnChange", ({ btn, mode, page }) => {
+        if (!Object.values(DB).includes(btn.dataset.type)) return;
+        let dataset = app.getBtnData(btn);
+        dataset.btn = btn;
+        DB_EXECUTE[dataset.type]?.(dataset);
+    });
+
+    app.on("longPress", ({ mode, page, btn }) => {
+        if (mode === MODE.NOUN || mode === MODE.VERB) {
+            app.btn = btn;
+            app.mode = MODE.GENERATE;
+        }
+    });
+
+    app.mode = MODE.EXAMPLE;
 });
