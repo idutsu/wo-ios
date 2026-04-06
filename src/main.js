@@ -355,16 +355,15 @@ async function generateSentencesWithRandom() {
 async function generateSentencesWithWord({ mode, page, word, table }) {
     const fetchTable = { noun: "verb", verb: "noun" }[table];
     const words = await dbFacadeProxy.getWordsByPage(fetchTable, page);
-    const wordsLength = words.length;
     const fragment = document.createDocumentFragment();
-    for (let i = 0; i < wordsLength; i++) {
+    for (let i = 0; i < words.length; i++) {
         const w = words[i].word || words[i][0];
         const [noun, verb] = { noun: [word, w], verb: [w, word] }[table];
         const li = document.createElement("li");
         li.innerHTML = `<button class="${DB.SAVE_SENTENCE}" data-type="${DB.SAVE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
         fragment.append(li);
     }
-    const pager = createPager(page, wordsLength, { word, table });
+    const pager = createPager(page, words.length, { word, table });
     if (pager) fragment.append(pager);
     mainList.replaceChildren(fragment);
 }
