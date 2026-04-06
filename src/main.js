@@ -1,18 +1,5 @@
 import Database from "@tauri-apps/plugin-sql";
 
-const executeDecorator = (fn) => {
-    return async function (...args) {
-        disableAllButtons();
-        try {
-            return await fn?.(...args);
-        } catch (error) {
-            console.error(error);
-        } finally {
-            enableAllButtons();
-        }
-    };
-};
-
 const MODE = {
     EXAMPLE: "example",
     NOUN: "noun",
@@ -60,53 +47,111 @@ class EventManager {
     }
 }
 
-class App extends EventManager {
+class LongPressManager extends EventManager {
+    #element;
+    #longPressTimer;
+    isLongPressed;
+    constructor(element) {
+        super();
+        this.#element = element;
+        this.#longPressTimer = null;
+        this.isLongPressed = false;
+        element.addEventListener("touchstart", this.startLongPress.bind(this));
+        element.addEventListener("touchend", this.stopLongPress.bind(this));
+        element.addEventListener("touchcancel", this.stopLongPress.bind(this));
+        element.addEventListener("touchmove", this.stopLongPress.bind(this));
+        element.addEventListener("click", this.preventClick.bind(this), { capture: true });
+    }
+    preventClick(e) {
+        if (this.isLongPressed) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            this.isLongPressed = false;
+        }
+    }
+    startLongPress(e) {
+        this.isLongPressed = false;
+        this.#longPressTimer = setTimeout(() => {
+            this.isLongPressed = true;
+            this.fire("longPress", e);
+        }, 500);
+    }
+    stopLongPress() {
+        if (this.#longPressTimer) {
+            clearTimeout(this.#longPressTimer);
+            this.#longPressTimer = null;
+        }
+    }
+}
+
+class App extends LongPressManager {
     #mode;
     #page;
     #btn;
 
-    constructor() {
-        super();
+    constructor(longPressElement) {
+        super(longPressElement);
         this.#mode = null;
         this.#page = 1;
         this.#btn = null;
     }
-
     get mode() {
         return this.#mode;
     }
-
     set mode(mode) {
         if (!Object.values(MODE).includes(mode)) return;
         this.#mode = mode;
         this.#page = 1;
+        if (!this.isLongPressed) this.#btn = null;
         this.fire("modeChange", { mode: mode, page: this.page, btn: this.btn });
     }
-
     get page() {
         return this.#page;
     }
-
     set page(page) {
         this.#page = Number(page);
         this.fire("pageChange", { page: page, mode: this.mode, btn: this.btn });
     }
-
     get btn() {
         return this.#btn;
     }
-
     set btn(btn) {
         this.#btn = btn;
         if (!btn) return;
         this.fire("btnChange", { btn: btn, mode: this.mode, page: this.page });
     }
-
     getBtnData(btn) {
         const payload = {};
         for (const key in btn.dataset) payload[key] = btn.dataset[key];
         return payload;
     }
+    fire(key, data) {
+        let payload = data;
+        if (key === "longPress") {
+            const btn = data.target;
+            if (!btn || btn.tagName !== "BUTTON") return;
+            payload = {
+                mode: this.mode,
+                page: this.page,
+                btn: btn,
+            };
+        }
+        super.fire(key, payload);
+    }
+}
+
+function executeDecorator(fn) {
+    return async function (...args) {
+        disableAllButtons();
+        try {
+            return await fn?.(...args);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            enableAllButtons();
+        }
+    };
 }
 
 const dbFacade = {
@@ -398,7 +443,7 @@ function createPager(page, listLength, option = {}) {
     return pagerLi.hasChildNodes() ? pagerLi : null;
 }
 
-const SENT_LIMIT = 300;
+const SENT_LIMIT = 100;
 const WORD_LIMIT = 50;
 
 let app;
@@ -436,25 +481,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
-    let pressTimer;
-    let isLongPressed = false;
-
-    mainList.addEventListener("touchstart", (e) => {
-        isLongPressed = false;
-        clearTimeout(pressTimer);
-        const btn = e.target;
-        if (btn.tagName !== "BUTTON") return;
-        pressTimer = setTimeout(() => {
-            isLongPressed = true;
-            app.fire("longPress", { mode: app.mode, page: app.page, btn: btn });
-        }, 500);
-    });
-
-    mainList.addEventListener("touchend", () => clearTimeout(pressTimer));
-    mainList.addEventListener("touchcancel", () => clearTimeout(pressTimer));
-    mainList.addEventListener("touchmove", () => clearTimeout(pressTimer));
-
-    app = new App();
+    app = new App(mainList);
 
     registerBtn.addEventListener("click", DB_EXECUTE[DB.REGISTER]);
 
@@ -469,7 +496,6 @@ window.addEventListener("DOMContentLoaded", async () => {
         if (btn.dataset.type === "page") {
             app.page = Number(btn.dataset.args);
         }
-        if (isLongPressed) isLongPressed = false;
     });
 
     app.on("modeChange", async ({ mode, page, btn }) => {
