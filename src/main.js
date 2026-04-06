@@ -51,6 +51,7 @@ class LongPressManager extends EventManager {
     #element;
     #longPressTimer;
     isLongPressed;
+
     constructor(element) {
         super();
         this.#element = element;
@@ -62,6 +63,7 @@ class LongPressManager extends EventManager {
         element.addEventListener("touchmove", this.stopLongPress.bind(this));
         element.addEventListener("click", this.preventClick.bind(this), { capture: true });
     }
+
     preventClick(e) {
         if (this.isLongPressed) {
             e.preventDefault();
@@ -70,6 +72,7 @@ class LongPressManager extends EventManager {
             this.isLongPressed = false;
         }
     }
+
     startLongPress(e) {
         this.isLongPressed = false;
         this.#longPressTimer = setTimeout(() => {
@@ -77,6 +80,7 @@ class LongPressManager extends EventManager {
             this.fire("longPress", e);
         }, 500);
     }
+
     stopLongPress() {
         if (this.#longPressTimer) {
             clearTimeout(this.#longPressTimer);
@@ -96,9 +100,11 @@ class App extends LongPressManager {
         this.#page = 1;
         this.#btn = null;
     }
+
     get mode() {
         return this.#mode;
     }
+
     set mode(mode) {
         if (!Object.values(MODE).includes(mode)) return;
         this.#mode = mode;
@@ -106,26 +112,32 @@ class App extends LongPressManager {
         if (!this.isLongPressed) this.#btn = null;
         this.fire("modeChange", { mode: mode, page: this.page, btn: this.btn });
     }
+
     get page() {
         return this.#page;
     }
+
     set page(page) {
         this.#page = Number(page);
         this.fire("pageChange", { page: page, mode: this.mode, btn: this.btn });
     }
+
     get btn() {
         return this.#btn;
     }
+
     set btn(btn) {
         this.#btn = btn;
         if (!btn) return;
         this.fire("btnChange", { btn: btn, mode: this.mode, page: this.page });
     }
+
     getBtnData(btn) {
         const payload = {};
         for (const key in btn.dataset) payload[key] = btn.dataset[key];
         return payload;
     }
+
     fire(key, data) {
         let payload = data;
         if (key === "longPress") {
