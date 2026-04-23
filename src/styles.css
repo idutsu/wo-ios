@@ -33,7 +33,6 @@ html {
     font-size: 20px;
     height: 100%;
     background-color: var(--bg-color);
-
     overflow: hidden;
     touch-action: manipulation;
 }
@@ -150,15 +149,21 @@ header > div {
     display: flex;
     align-items: center;
     height: 40px;
-    gap: 15px;
+    gap: 10px;
 }
 
 button.main-btn {
+    flex-grow: 1;
     height: 100%;
     padding: 0 10px;
+    font-size: 0.8rem;
     background-color: var(--bg-color);
     color: var(--text-color);
     border: 1px solid var(--text-color);
+}
+
+button.main-btn#registerBtn {
+    min-width: 40px;
 }
 
 button.main-btn.active {
@@ -174,14 +179,18 @@ button.main-btn.active {
 }
 
 input[type="text"].main-input {
+    flex-grow: 1;
+    gap: 10px;
+    min-width: 0;
     height: 100%;
-    width: 45%;
     padding: 0 10px;
     border: 1px solid var(--text-color);
+    font-size: 0.8rem;
     color: var(--text-color);
 }
 
 input[type="text"].main-input::placeholder {
+    font-size: 0.8rem;
     color: var(--text-color);
     opacity: 0.5;
 }
@@ -199,7 +208,7 @@ input[type="text"].main-input::placeholder {
     padding: 2px;
 }
 
-#mainList li.page-btn {
+#mainList li.pager {
     font-size: 2rem;
     margin-top: 20px;
 }
@@ -209,12 +218,13 @@ input[type="text"].main-input::placeholder {
     width: 50px;
     height: 50px;
     text-align: center !important;
-    line-waheight: 50px;
+    line-height: 50px;
     margin-right: 15px;
 }
 
 .example-list .delete-word-btn,
-.gen-list .delete-sent-btn,
+.gen-rand-list .delete-sent-btn,
+.gen-word-list .delete-sent-btn,
 .page-next,
 .page-prev {
     background-color: var(--text-color);
@@ -222,21 +232,24 @@ input[type="text"].main-input::placeholder {
 }
 
 .example-list .save-word-btn,
-.gen-list .save-sent-btn {
+.gen-rand-list .save-sent-btn,
+.gen-word-list .save-sent-btn {
     background-color: var(--bg-color);
     color: var(--text-color);
 }
 
 .noun-list .delete-word-btn,
 .verb-list .delete-word-btn,
-.fav-list .delete-sent-btn {
+.sent-list .delete-sent-btn,
+.search-list .delete-word-btn {
     background-color: var(--bg-color);
     color: var(--text-color);
 }
 
 .noun-list .save-word-btn,
 .verb-list .save-word-btn,
-.fav-list .save-sent-btn {
+.sent-list .save-sent-btn,
+.search-list .save-word-btn {
     background-color: var(--bg-color);
     color: var(--text-color);
     opacity: 0.3;

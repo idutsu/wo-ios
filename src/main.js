@@ -4,16 +4,20 @@ const MODE = {
     EXAMPLE: "example",
     NOUN: "noun",
     VERB: "verb",
-    GENERATE: "gen",
-    FAVORITE: "fav",
+    SENT: "sent",
+    GENERATE_WITH_RANDOM: "gen-rand",
+    GENERATE_WITH_WORD: "gen-word",
+    SEARCH: "search",
 };
 
 const MODE_EXECUTE = {
     [MODE.EXAMPLE]: executeDecorator(getExampleSentences),
     [MODE.NOUN]: executeDecorator(getFavoriteWords),
     [MODE.VERB]: executeDecorator(getFavoriteWords),
-    [MODE.GENERATE]: executeDecorator(generateSentences),
-    [MODE.FAVORITE]: executeDecorator(getFavoriteSentences),
+    [MODE.SENT]: executeDecorator(getFavoriteSentences),
+    [MODE.GENERATE_WITH_RANDOM]: executeDecorator(generateSentencesWithRandom),
+    [MODE.GENERATE_WITH_WORD]: executeDecorator(generateSentencesWithWord),
+    [MODE.SEARCH]: executeDecorator(searchWord),
 };
 
 const DB = {
@@ -62,6 +66,7 @@ class LongPressManager extends EventManager {
         element.addEventListener("touchcancel", this.stopLongPress.bind(this));
         element.addEventListener("touchmove", this.stopLongPress.bind(this));
         element.addEventListener("click", this.preventClick.bind(this), { capture: true });
+        element.addEventListener("contextmenu", this.rightClick.bind(this));
     }
 
     preventClick(e) {
@@ -87,18 +92,23 @@ class LongPressManager extends EventManager {
             this.#longPressTimer = null;
         }
     }
+
+    rightClick(e) {
+        e.preventDefault();
+        this.fire("longPress", e);
+    }
 }
 
 class App extends LongPressManager {
     #mode;
     #page;
-    #btn;
+    #args;
 
     constructor(longPressElement) {
         super(longPressElement);
         this.#mode = null;
         this.#page = 1;
-        this.#btn = null;
+        this.#args = null;
     }
 
     get mode() {
@@ -109,8 +119,7 @@ class App extends LongPressManager {
         if (!Object.values(MODE).includes(mode)) return;
         this.#mode = mode;
         this.#page = 1;
-        if (!this.isLongPressed) this.#btn = null;
-        this.fire("modeChange", { mode: mode, page: this.page, btn: this.btn });
+        this.fire("modeChange", { mode: mode, page: this.page, args: this.args });
     }
 
     get page() {
@@ -119,37 +128,18 @@ class App extends LongPressManager {
 
     set page(page) {
         this.#page = Number(page);
-        this.fire("pageChange", { page: page, mode: this.mode, btn: this.btn });
+        this.fire("pageChange", { mode: this.mode, page: this.page, args: this.args });
     }
 
-    get btn() {
-        return this.#btn;
+    get args() {
+        return this.#args;
     }
 
-    set btn(btn) {
-        this.#btn = btn;
-        if (!btn) return;
-        this.fire("btnChange", { btn: btn, mode: this.mode, page: this.page });
-    }
-
-    getBtnData(btn) {
-        const payload = {};
-        for (const key in btn.dataset) payload[key] = btn.dataset[key];
-        return payload;
-    }
-
-    fire(key, data) {
-        let payload = data;
-        if (key === "longPress") {
-            const btn = data.target;
-            if (!btn || btn.tagName !== "BUTTON") return;
-            payload = {
-                mode: this.mode,
-                page: this.page,
-                btn: btn,
-            };
+    set args(data) {
+        this.#args = data;
+        if (data && Object.values(DB).includes(data.type) && !data.isLongPress) {
+            this.fire("btnChange", { mode: this.mode, page: this.page, args: this.args });
         }
-        super.fire(key, payload);
     }
 }
 
@@ -222,6 +212,19 @@ const dbFacade = {
     async deleteSentence(noun, verb) {
         await this.db.execute(`DELETE FROM sent WHERE noun = $1 AND verb = $2`, [noun, verb]);
     },
+
+    async searchWord(targetColumn, searchColumn, word, page = 1, limit = WORD_LIMIT) {
+        const safePage = Math.max(1, page);
+        const offset = (safePage - 1) * limit;
+        const query = `
+                SELECT ${targetColumn} AS word FROM wo_sudachi_normal WHERE ${searchColumn} = $1
+                UNION
+                SELECT ${targetColumn} AS word FROM wo_sudachi_sahen WHERE ${searchColumn} = $1
+                ORDER BY word ASC
+                LIMIT $2 OFFSET $3
+            `;
+        return await this.db.select(query, [word, limit, offset]);
+    },
 };
 
 function dbProxy(targetDB) {
@@ -265,7 +268,7 @@ function dbProxy(targetDB) {
 
 const dbFacadeProxy = dbProxy(dbFacade);
 
-async function getExampleSentences({ mode, page }) {
+async function getExampleSentences({ mode, page, args }) {
     mainList.innerHTML = "<p>読み込み中・・・</p>";
     const rows = await dbFacadeProxy.getRandomExampleSentences(SENT_LIMIT);
     const allNouns = await dbFacadeProxy.getAllWords("noun");
@@ -281,7 +284,9 @@ async function getExampleSentences({ mode, page }) {
         const isVerbExist = verbSet.has(verb);
         const createWordBtn = (word, table, isExist) => {
             const action = isExist ? DB.DELETE_WORD : DB.SAVE_WORD;
-            return `<button class="${action}" data-type="${action}" data-table="${table}" data-word="${word}">${word}</button>`;
+            const currentId = `btn-${btnIdCounter++}`;
+            const safeWord = escapeHTML(word);
+            return `<button id="${currentId}" class="${action}" data-type="${action}" data-id="${currentId}" data-table="${table}" data-word="${safeWord}">${safeWord}</button>`;
         };
         const nounBtn = createWordBtn(noun, "noun", isNounExist);
         const verbBtn = createWordBtn(verb, "verb", isVerbExist);
@@ -292,42 +297,39 @@ async function getExampleSentences({ mode, page }) {
     mainList.replaceChildren(fragment);
 }
 
-async function getFavoriteSentences({ mode, page }) {
+async function getFavoriteSentences({ mode, page, args }) {
     const sentList = await dbFacadeProxy.getAllSentences();
     const fragment = document.createDocumentFragment();
     for (let i = 0; i < sentList.length; i++) {
         const noun = sentList[i].noun || sentList[i][0];
         const verb = sentList[i].verb || sentList[i][1];
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${DB.DELETE_SENTENCE}" data-type="${DB.DELETE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
+        const currentId = `btn-${btnIdCounter++}`;
+        const safeNoun = escapeHTML(noun);
+        const safeVerb = escapeHTML(verb);
+        li.innerHTML = `<button id="${currentId}" class="${DB.DELETE_SENTENCE}" data-type="${DB.DELETE_SENTENCE}" data-id="${currentId}" data-table="sent" data-noun="${safeNoun}" data-verb="${safeVerb}">${safeNoun}を${safeVerb}</button>`;
         fragment.prepend(li);
     }
     mainList.replaceChildren(fragment);
 }
 
-async function getFavoriteWords({ mode, page }) {
+async function getFavoriteWords({ mode, page, args }) {
     const words = await dbFacadeProxy.getWordsByPage(mode, page);
     const fragment = document.createDocumentFragment();
     for (let i = 0; i < words.length; i++) {
         const word = words[i].word || words[i][0];
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${DB.DELETE_WORD}" data-type="${DB.DELETE_WORD}" data-table="${mode}" data-word="${word}">${word}</button>`;
+        const currentId = `btn-${btnIdCounter++}`;
+        const safeWord = escapeHTML(word);
+        li.innerHTML = `<button id="${currentId}" class="${DB.DELETE_WORD}" data-type="${DB.DELETE_WORD}" data-id="${currentId}" data-table="${mode}" data-word="${safeWord}">${safeWord}</button>`;
         fragment.append(li);
     }
-    const pager = createPager(page, words.length);
+    const pager = createPager(page, words.length, WORD_LIMIT);
     if (pager) fragment.append(pager);
     mainList.replaceChildren(fragment);
 }
 
-async function generateSentences({ mode, page, btn }) {
-    if (btn?.dataset?.word && btn?.dataset?.table) {
-        await generateSentencesWithWord({ word: btn.dataset.word, table: btn.dataset.table, page });
-    } else {
-        await generateSentencesWithRandom();
-    }
-}
-
-async function generateSentencesWithRandom() {
+async function generateSentencesWithRandom({ mode, page, args }) {
     const nounList = await dbFacadeProxy.getRandomWords("noun", SENT_LIMIT);
     const verbList = await dbFacadeProxy.getRandomWords("verb", SENT_LIMIT);
     const allSentences = await dbFacadeProxy.getAllSentences();
@@ -346,13 +348,18 @@ async function generateSentencesWithRandom() {
         const isSentExist = sentSet.has(`${noun}_${verb}`);
         const detaType = isSentExist ? DB.DELETE_SENTENCE : DB.SAVE_SENTENCE;
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${detaType}" data-type="${detaType}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
+        const currentId = `btn-${btnIdCounter++}`;
+        const safeNoun = escapeHTML(noun);
+        const safeVerb = escapeHTML(verb);
+        li.innerHTML = `<button id="${currentId}" class="${detaType}" data-type="${detaType}" data-id="${currentId}" data-table="sent" data-noun="${safeNoun}" data-verb="${safeVerb}">${safeNoun}を${safeVerb}</button>`;
         fragment.appendChild(li);
     }
     mainList.replaceChildren(fragment);
 }
 
-async function generateSentencesWithWord({ mode, page, word, table }) {
+async function generateSentencesWithWord({ mode, page, args }) {
+    const table = args.table;
+    const word = args.word;
     const fetchTable = { noun: "verb", verb: "noun" }[table];
     const words = await dbFacadeProxy.getWordsByPage(fetchTable, page);
     const fragment = document.createDocumentFragment();
@@ -360,32 +367,69 @@ async function generateSentencesWithWord({ mode, page, word, table }) {
         const w = words[i].word || words[i][0];
         const [noun, verb] = { noun: [word, w], verb: [w, word] }[table];
         const li = document.createElement("li");
-        li.innerHTML = `<button class="${DB.SAVE_SENTENCE}" data-type="${DB.SAVE_SENTENCE}" data-table="sent" data-noun="${noun}" data-verb="${verb}">${noun}を${verb}</button>`;
+        const currentId = `btn-${btnIdCounter++}`;
+        const safeNoun = escapeHTML(noun);
+        const safeVerb = escapeHTML(verb);
+        li.innerHTML = `<button id="${currentId}" class="${DB.SAVE_SENTENCE}" data-type="${DB.SAVE_SENTENCE}" data-id="${currentId}" data-table="sent" data-noun="${safeNoun}" data-verb="${safeVerb}">${safeNoun}を${safeVerb}</button>`;
         fragment.append(li);
     }
-    const pager = createPager(page, words.length, { word, table });
+    const pager = createPager(page, words.length, WORD_LIMIT, { table, word });
     if (pager) fragment.append(pager);
     mainList.replaceChildren(fragment);
 }
 
-async function saveWord({ btn, table, word }) {
+async function searchWord({ mode, page, args }) {
+    const nounText = args?.noun;
+    const verbText = args?.verb;
+    if (!nounText && !verbText) return;
+    try {
+        let words, table;
+        if (nounText && !verbText) {
+            words = await dbFacadeProxy.searchWord("verb", "noun", nounText, page);
+            table = "verb";
+        } else if (!nounText && verbText) {
+            words = await dbFacadeProxy.searchWord("noun", "verb", verbText, page);
+            table = "noun";
+        }
+        const fragment = document.createDocumentFragment();
+        for (let i = 0; i < words.length; i++) {
+            const word = words[i].word;
+            const li = document.createElement("li");
+            const currentId = `btn-${btnIdCounter++}`;
+            const safeWord = escapeHTML(word);
+            li.innerHTML = `<button id="${currentId}" class="${DB.DELETE_WORD}" data-type="${DB.DELETE_WORD}" data-id="${currentId}" data-table="${table}" data-word="${safeWord}">${safeWord}</button>`;
+            fragment.append(li);
+        }
+        const pager = createPager(page, words.length, WORD_LIMIT, { noun: nounText, verb: verbText });
+        if (pager) fragment.append(pager);
+        mainList.replaceChildren(fragment);
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+async function saveWord({ id, table, word }) {
     await dbFacadeProxy.saveWord(table, word);
-    btn.className = btn.dataset.type = DB.DELETE_WORD;
+    const btn = document.getElementById(id);
+    if (btn) btn.className = btn.dataset.type = DB.DELETE_WORD;
 }
 
-async function deleteWord({ btn, table, word }) {
+async function deleteWord({ id, table, word }) {
     await dbFacadeProxy.deleteWord(table, word);
-    btn.className = btn.dataset.type = DB.SAVE_WORD;
+    const btn = document.getElementById(id);
+    if (btn) btn.className = btn.dataset.type = DB.SAVE_WORD;
 }
 
-async function saveSentence({ btn, noun, verb }) {
+async function saveSentence({ id, noun, verb }) {
     await dbFacadeProxy.saveSentence(noun, verb);
-    btn.className = btn.dataset.type = DB.DELETE_SENTENCE;
+    const btn = document.getElementById(id);
+    if (btn) btn.className = btn.dataset.type = DB.DELETE_SENTENCE;
 }
 
-async function deleteSentence({ btn, noun, verb }) {
+async function deleteSentence({ id, noun, verb }) {
     await dbFacadeProxy.deleteSentence(noun, verb);
-    btn.className = btn.dataset.type = DB.SAVE_SENTENCE;
+    const btn = document.getElementById(id);
+    if (btn) btn.className = btn.dataset.type = DB.SAVE_SENTENCE;
 }
 
 async function registerWordOrSentence() {
@@ -405,7 +449,7 @@ async function registerWordOrSentence() {
             await dbFacadeProxy.saveSentence(nounText, verbText);
             nounInput.value = "";
             verbInput.value = "";
-            app.mode = MODE.FAVORITE;
+            app.mode = MODE.SENT;
         }
     } catch (error) {
         console.error(error);
@@ -426,13 +470,11 @@ function enableAllButtons() {
     });
 }
 
-function createPager(page, listLength, option = {}) {
-    if (!page) return null;
+function createPager(page = 1, listLength, limit, option = {}) {
     const pagerLi = document.createElement("li");
-    pagerLi.className = "page-btn";
+    pagerLi.className = "pager";
     const setDataset = (btn, targetPage) => {
-        btn.dataset.type = "page";
-        btn.dataset.args = targetPage;
+        btn.dataset.page = targetPage;
         for (const [key, value] of Object.entries(option)) {
             if (value !== undefined) btn.dataset[key] = value;
         }
@@ -444,7 +486,7 @@ function createPager(page, listLength, option = {}) {
         prevBtn.textContent = "◀";
         pagerLi.appendChild(prevBtn);
     }
-    if (listLength === WORD_LIMIT) {
+    if (listLength === limit) {
         const nextBtn = document.createElement("button");
         setDataset(nextBtn, page + 1);
         nextBtn.className = "page-next";
@@ -452,6 +494,21 @@ function createPager(page, listLength, option = {}) {
         pagerLi.appendChild(nextBtn);
     }
     return pagerLi.hasChildNodes() ? pagerLi : null;
+}
+
+function escapeHTML(str) {
+    if (!str) return "";
+    return String(str).replace(
+        /[&<>"']/g,
+        (match) =>
+            ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+            })[match],
+    );
 }
 
 const SENT_LIMIT = 100;
@@ -463,25 +520,28 @@ let mainList = null;
 let nounBtn = null;
 let verbBtn = null;
 let genBtn = null;
-let favBtn = null;
+let sentBtn = null;
 let exampleBtn = null;
+let searchBtn = null;
 let nounInput = null;
 let verbInput = null;
 let registerBtn = null;
 let resultArea = null;
+let btnIdCounter = 0;
 
 window.addEventListener("DOMContentLoaded", async () => {
+    resultArea = document.getElementById("resultArea");
     modeBox = document.getElementById("modeBox");
     mainList = document.getElementById("mainList");
-    nounBtn = document.getElementById("nounBtn");
-    verbBtn = document.getElementById("verbBtn");
+    exampleBtn = document.getElementById(`${MODE.EXAMPLE}Btn`);
+    nounBtn = document.getElementById(`${MODE.NOUN}Btn`);
+    verbBtn = document.getElementById(`${MODE.VERB}Btn`);
+    genBtn = document.getElementById(`${MODE.GENERATE_WITH_RANDOM}Btn`);
+    sentBtn = document.getElementById(`${MODE.SENT}Btn`);
+    searchBtn = document.getElementById(`${MODE.SEARCH}Btn`);
+    registerBtn = document.getElementById("registerBtn");
     nounInput = document.getElementById("registerNounInput");
     verbInput = document.getElementById("registerVerbInput");
-    genBtn = document.getElementById("genBtn");
-    favBtn = document.getElementById("favBtn");
-    exampleBtn = document.getElementById("exampleBtn");
-    registerBtn = document.getElementById("registerBtn");
-    resultArea = document.getElementById("resultArea");
 
     try {
         const DB = import.meta.env.VITE_DB;
@@ -494,22 +554,33 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     app = new App(mainList);
 
-    registerBtn.addEventListener("click", DB_EXECUTE[DB.REGISTER]);
+    nounBtn.addEventListener("click", () => (app.mode = MODE.NOUN));
+    verbBtn.addEventListener("click", () => (app.mode = MODE.VERB));
+    genBtn.addEventListener("click", () => (app.mode = MODE.GENERATE_WITH_RANDOM));
+    sentBtn.addEventListener("click", () => (app.mode = MODE.SENT));
+    exampleBtn.addEventListener("click", () => (app.mode = MODE.EXAMPLE));
 
-    modeBox.addEventListener("click", (e) => {
-        app.mode = e.target.dataset.args;
+    searchBtn.addEventListener("click", () => {
+        app.args = {
+            noun: nounInput.value.trim(),
+            verb: verbInput.value.trim(),
+        };
+        app.mode = MODE.SEARCH;
     });
+
+    registerBtn.addEventListener("click", DB_EXECUTE[DB.REGISTER]);
 
     mainList.addEventListener("click", (e) => {
         const btn = e.target;
         if (btn.tagName !== "BUTTON") return;
-        app.btn = btn;
-        if (btn.dataset.type === "page") {
-            app.page = Number(btn.dataset.args);
+        if (btn.dataset.page) {
+            app.page = Number(btn.dataset.page);
+        } else {
+            app.args = { ...btn.dataset };
         }
     });
 
-    app.on("modeChange", async ({ mode, page, btn }) => {
+    app.on("modeChange", async ({ mode, page, args }) => {
         const modeBtn = document.getElementById(`${mode}Btn`);
         if (modeBtn) {
             const buttons = modeBox.querySelectorAll("button");
@@ -518,26 +589,26 @@ window.addEventListener("DOMContentLoaded", async () => {
         }
         mainList.className = `${mode}-list`;
         mainList.innerHTML = "";
-        await MODE_EXECUTE[mode]({ mode, page, btn });
+        btnIdCounter = 0;
+        await MODE_EXECUTE[mode]({ mode, page, args });
         resultArea.scrollTo(0, 0);
     });
 
-    app.on("pageChange", async ({ mode, page, btn }) => {
-        await MODE_EXECUTE[mode]({ mode, page, btn });
+    app.on("pageChange", async ({ mode, page, args }) => {
+        await MODE_EXECUTE[mode]({ mode, page, args });
         resultArea.scrollTo(0, 0);
     });
 
-    app.on("btnChange", ({ btn, mode, page }) => {
-        if (!Object.values(DB).includes(btn.dataset.type)) return;
-        let dataset = app.getBtnData(btn);
-        dataset.btn = btn;
-        DB_EXECUTE[dataset.type]?.(dataset);
+    app.on("btnChange", ({ mode, page, args }) => {
+        DB_EXECUTE[args.type]?.(args);
     });
 
-    app.on("longPress", ({ mode, page, btn }) => {
-        if (mode === MODE.NOUN || mode === MODE.VERB) {
-            app.btn = btn;
-            app.mode = MODE.GENERATE;
+    app.on("longPress", (e) => {
+        const btn = e.target;
+        if (btn.tagName !== "BUTTON") return;
+        if (app.mode === MODE.NOUN || app.mode === MODE.VERB || app.mode === MODE.SEARCH) {
+            app.args = { ...btn.dataset, isLongPress: true };
+            app.mode = MODE.GENERATE_WITH_WORD;
         }
     });
 
