@@ -284,7 +284,7 @@ async function getExampleSentences({ mode, page, args }) {
         const isVerbExist = verbSet.has(verb);
         const createWordBtn = (word, table, isExist) => {
             const action = isExist ? DB.DELETE_WORD : DB.SAVE_WORD;
-            const currentId = `btn-${btnIdCounter++}`;
+            const currentId = `btn-${getRandomId()}`;
             const safeWord = escapeHTML(word);
             return `<button id="${currentId}" class="${action}" data-type="${action}" data-id="${currentId}" data-table="${table}" data-word="${safeWord}">${safeWord}</button>`;
         };
@@ -304,7 +304,7 @@ async function getFavoriteSentences({ mode, page, args }) {
         const noun = sentList[i].noun || sentList[i][0];
         const verb = sentList[i].verb || sentList[i][1];
         const li = document.createElement("li");
-        const currentId = `btn-${btnIdCounter++}`;
+        const currentId = `btn-${getRandomId()}`;
         const safeNoun = escapeHTML(noun);
         const safeVerb = escapeHTML(verb);
         li.innerHTML = `<button id="${currentId}" class="${DB.DELETE_SENTENCE}" data-type="${DB.DELETE_SENTENCE}" data-id="${currentId}" data-table="sent" data-noun="${safeNoun}" data-verb="${safeVerb}">${safeNoun}を${safeVerb}</button>`;
@@ -319,7 +319,7 @@ async function getFavoriteWords({ mode, page, args }) {
     for (let i = 0; i < words.length; i++) {
         const word = words[i].word || words[i][0];
         const li = document.createElement("li");
-        const currentId = `btn-${btnIdCounter++}`;
+        const currentId = `btn-${getRandomId()}`;
         const safeWord = escapeHTML(word);
         li.innerHTML = `<button id="${currentId}" class="${DB.DELETE_WORD}" data-type="${DB.DELETE_WORD}" data-id="${currentId}" data-table="${mode}" data-word="${safeWord}">${safeWord}</button>`;
         fragment.append(li);
@@ -348,7 +348,7 @@ async function generateSentencesWithRandom({ mode, page, args }) {
         const isSentExist = sentSet.has(`${noun}_${verb}`);
         const detaType = isSentExist ? DB.DELETE_SENTENCE : DB.SAVE_SENTENCE;
         const li = document.createElement("li");
-        const currentId = `btn-${btnIdCounter++}`;
+        const currentId = `btn-${getRandomId()}`;
         const safeNoun = escapeHTML(noun);
         const safeVerb = escapeHTML(verb);
         li.innerHTML = `<button id="${currentId}" class="${detaType}" data-type="${detaType}" data-id="${currentId}" data-table="sent" data-noun="${safeNoun}" data-verb="${safeVerb}">${safeNoun}を${safeVerb}</button>`;
@@ -367,7 +367,7 @@ async function generateSentencesWithWord({ mode, page, args }) {
         const w = words[i].word || words[i][0];
         const [noun, verb] = { noun: [word, w], verb: [w, word] }[table];
         const li = document.createElement("li");
-        const currentId = `btn-${btnIdCounter++}`;
+        const currentId = `btn-${getRandomId()}`;
         const safeNoun = escapeHTML(noun);
         const safeVerb = escapeHTML(verb);
         li.innerHTML = `<button id="${currentId}" class="${DB.SAVE_SENTENCE}" data-type="${DB.SAVE_SENTENCE}" data-id="${currentId}" data-table="sent" data-noun="${safeNoun}" data-verb="${safeVerb}">${safeNoun}を${safeVerb}</button>`;
@@ -395,7 +395,7 @@ async function searchWord({ mode, page, args }) {
         for (let i = 0; i < words.length; i++) {
             const word = words[i].word;
             const li = document.createElement("li");
-            const currentId = `btn-${btnIdCounter++}`;
+            const currentId = `btn-${getRandomId()}`;
             const safeWord = escapeHTML(word);
             li.innerHTML = `<button id="${currentId}" class="${DB.DELETE_WORD}" data-type="${DB.DELETE_WORD}" data-id="${currentId}" data-table="${table}" data-word="${safeWord}">${safeWord}</button>`;
             fragment.append(li);
@@ -496,6 +496,10 @@ function createPager(page = 1, listLength, limit, option = {}) {
     return pagerLi.hasChildNodes() ? pagerLi : null;
 }
 
+function getRandomId() {
+    return crypto.randomUUID();
+}
+
 function escapeHTML(str) {
     if (!str) return "";
     return String(str).replace(
@@ -527,7 +531,6 @@ let nounInput = null;
 let verbInput = null;
 let registerBtn = null;
 let resultArea = null;
-let btnIdCounter = 0;
 
 window.addEventListener("DOMContentLoaded", async () => {
     resultArea = document.getElementById("resultArea");
@@ -589,7 +592,6 @@ window.addEventListener("DOMContentLoaded", async () => {
         }
         mainList.className = `${mode}-list`;
         mainList.innerHTML = "";
-        btnIdCounter = 0;
         await MODE_EXECUTE[mode]({ mode, page, args });
         resultArea.scrollTo(0, 0);
     });
